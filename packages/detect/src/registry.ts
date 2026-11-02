@@ -82,6 +82,7 @@ export const REGISTRY: Record<string, DetectorMeta> = {
     defaults: { shortSec: 1, longSec: 5, thr: 5.5, tolSec: 0.6 },
     thresholdParam: 'thr',
     simplicity: 7,
+    patternAlarm: true,
     create: (sc, p) => new NpwStat(sc, p),
   },
   kalman: {

@@ -67,5 +67,10 @@ export interface DetectorMeta {
   thresholdParam: string;
   /** Ранг простоты для выбора при ничьей (меньше — проще). */
   simplicity: number;
+  /**
+   * Тревога по шаблону (совпадение событий на нескольких датчиках), а не по превышению score.
+   * Такой порог калибруется подсчётом тревог, а не по максимумам score.
+   */
+  patternAlarm?: boolean;
   create(sc: StatContext, params: DetectorParams, members?: Array<{ detector: string; params: DetectorParams; weight?: number }>): Statistic;
 }

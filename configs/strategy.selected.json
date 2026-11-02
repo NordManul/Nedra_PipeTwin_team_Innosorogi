@@ -2,11 +2,22 @@
   "$schema": "../schemas/strategy.schema.json",
   "schemaVersion": 1,
   "strategy": "threshold",
-  "params": { "k": 3, "windowSec": 2 },
-  "localization": "hgl",
+  "params": {
+    "windowSec": 2,
+    "k": 10.44
+  },
+  "localization": "lsq",
   "signatureFilter": true,
   "warmupSec": 60,
-  "selectedAt": null,
-  "evidence": null,
-  "runnerUp": null
+  "selectedAt": "2026-11-02T13:54:27Z",
+  "evidence": {
+    "ttd_med_s": 13.0,
+    "ttd_p95_s": 29.64,
+    "mdl_pct": 5.0,
+    "far_per_day": 0.0,
+    "loc_med_m": 151.0,
+    "pod_5pct": 0.933
+  },
+  "runnerUp": "ewma",
+  "runsHash": "40cfdc6840510d1138c96d518ba123178e2de026"
 }

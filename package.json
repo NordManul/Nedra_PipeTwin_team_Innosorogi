@@ -14,7 +14,9 @@
     "test": "vitest run",
     "typecheck": "tsc -p packages/core --noEmit && tsc -p packages/detect --noEmit && tsc -p packages/io --noEmit && tsc -p packages/bench --noEmit && tsc -p apps/web --noEmit",
     "import": "tsx packages/io/src/cli.ts",
-    "fixtures": "tsx scripts/make-import-fixtures.ts"
+    "fixtures": "tsx scripts/make-import-fixtures.ts",
+    "bench": "tsx packages/bench/src/cli.ts",
+    "select": "python3 python/analysis/select_strategy.py"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

@@ -33,7 +33,7 @@ export interface PipelineOptions {
   /**
    * Защита от переходных режимов (как в системах по API 1130): после скачка на конце трубы,
    * не похожего на утечку (насос, задвижка), порог умножается на guardFactor на время
-   * guardTransits пробегов волны через трубу + 10 с. По умолчанию 2 и 2.
+   * guardTransits пробегов волны через трубу + 10 с. По умолчанию 1,5 и 1,5 (подобрано на E5).
    */
   guardFactor?: number;
   guardTransits?: number;
@@ -128,7 +128,7 @@ export class DetectionPipeline implements Detector {
     let maxGap = 0;
     for (let i = 1; i < ps.length; i++) maxGap = Math.max(maxGap, ps[i]!.x - ps[i - 1]!.x);
     this.faultHoldSec = Math.min(20, Math.max(3, maxGap / waveSpeed + 2));
-    this.guardSec = ((this.opts.guardTransits ?? 2) * ctx.config.geometry.length) / waveSpeed + 10;
+    this.guardSec = ((this.opts.guardTransits ?? 1.5) * ctx.config.geometry.length) / waveSpeed + 10;
     this.guardUntil = -Infinity;
     this.lastRegimeT = -Infinity;
     this.faultSince.clear();
@@ -387,7 +387,7 @@ export class DetectionPipeline implements Detector {
 
     this.watchRegime(s.t);
     this.watchSensorFaults(s.t);
-    const guard = s.t < this.guardUntil ? this.opts.guardFactor ?? 2 : 1;
+    const guard = s.t < this.guardUntil ? this.opts.guardFactor ?? 1.5 : 1;
     const ratio = out.threshold > 0 ? out.score / (out.threshold * guard) : 0;
     const raw = !this.opts.silent && (out.alarm ?? ratio > 1);
     let phase: DetectorPhase = 'running';
@@ -415,7 +415,13 @@ export class DetectionPipeline implements Detector {
         // один датчик против всех: тревогу не даём, решение — за монитором отказов (watchSensorFaults)
         if (Number.isNaN(this.holdUntil)) this.holdUntil = s.t + this.faultHoldSec;
         phase = 'suspect';
-      } else if (this.spec.signatureFilter && (sig.cls === 'pump-change' || sig.cls === 'valve-change') && sig.confidence >= SUPPRESS_CONFIDENCE) {
+      } else if (
+        this.spec.signatureFilter &&
+        (sig.cls === 'pump-change' || sig.cls === 'valve-change') &&
+        sig.confidence >= SUPPRESS_CONFIDENCE &&
+        // известное событие режима уже учтено защитой (порог повышен) — повторно не подавляем
+        !(s.t < this.guardUntil)
+      ) {
         this.setEvent(sig.cls, s.t);
         this.stat.rearm();
         this.prep.rebaseline(s.t);
