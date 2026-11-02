@@ -4,6 +4,7 @@ import { PipeModel } from '../hydraulics/pipe';
 import { nodeFlow, steadyBackward, steadyForward, type SteadyProfile } from '../hydraulics/steady';
 import { evalSchedule } from '../schedule';
 import { interp, median } from '../math/stats';
+import { EmaFilter, KalmanLevelFilter, type BoundaryFilter } from './boundary-filter';
 
 export interface EndSensors {
   pIn?: SensorSpec;
@@ -69,13 +70,12 @@ export function steadyFromEnd(model: PipeModel, end: 'inlet' | 'outlet', p: numb
 export class BoundaryInput {
   private hist: number[] = [];
   private last: number | undefined;
-  private lastT = NaN;
 
-  /**
-   * filterSec > 0 — фильтр первого порядка на замере: шум граничного датчика меньше расходится
-   * волнами в прогнозы, ценой запаздывания прогноза на filterSec (config.twin.inputFilterSec).
-   */
-  constructor(private readonly spec: SensorSpec, private readonly filterSec = 0) {}
+  /** filter — сглаживание очищенного замера (config.twin.inputFilter, boundary-filter.ts); без него — сырой замер. */
+  constructor(
+    private readonly spec: SensorSpec,
+    private readonly filter?: BoundaryFilter,
+  ) {}
 
   get id(): SensorId {
     return this.spec.id;
@@ -92,9 +92,7 @@ export class BoundaryInput {
       }
       this.hist.push(v);
       if (this.hist.length > 5) this.hist.shift();
-      const dt = frame.t - this.lastT;
-      this.lastT = frame.t;
-      this.last = this.filterSec > 0 && this.last !== undefined && dt > 0 ? this.last + (val - this.last) * (1 - Math.exp(-dt / this.filterSec)) : val;
+      this.last = this.filter ? this.filter.update(frame.t, val) : val;
     }
     return this.last;
   }
@@ -102,6 +100,19 @@ export class BoundaryInput {
   peek(): number | undefined {
     return this.last;
   }
+}
+
+/** Фильтр граничного замера по config.twin; undefined — без фильтра. */
+export function makeBoundaryFilter(cfg: PipelineConfig, spec: SensorSpec): BoundaryFilter | undefined {
+  const tau = cfg.twin.inputFilterSec ?? 0;
+  if (!(tau > 0)) return undefined;
+  return (cfg.twin.inputFilter ?? 'ema') === 'kalman' ? new KalmanLevelFilter(spec.noiseStd, tau) : new EmaFilter(tau);
+}
+
+/** Среднее запаздывание, которое фильтр добавляет к входам при изменениях: у Калмана при манёвре — около нуля. */
+export function boundaryFilterLag(cfg: PipelineConfig): number {
+  const tau = cfg.twin.inputFilterSec ?? 0;
+  return tau > 0 && (cfg.twin.inputFilter ?? 'ema') === 'ema' ? tau : 0;
 }
 
 /** Температура на входе: замер, если есть, иначе расписание из конфига. */

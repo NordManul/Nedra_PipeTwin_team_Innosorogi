@@ -4,12 +4,12 @@
  * Twin повторяет волны от насоса и задвижки, поэтому смена режима не даёт невязки (E5),
  * а утечка — даёт: её нет в модели.
  */
-import type { PipeProfile, PipelineConfig, SensorFrame, SensorId, SensorValues, TwinModel, TwinPrediction } from '../contracts';
+import type { PipeProfile, PipelineConfig, SensorFrame, SensorId, SensorSpec, SensorValues, TwinModel, TwinPrediction } from '../contracts';
 import { MocSolver, type BoundarySpec } from '../hydraulics/moc';
 import { PipeModel } from '../hydraulics/pipe';
 import { steadyBackward, steadyForward, steadyFromPressures, type PointSink, type SteadyProfile } from '../hydraulics/steady';
 import { interp } from '../math/stats';
-import { BoundaryInput, findEndSensors, InletTemperature, PredictionLag, sampleSensors, steadyFromEnd, steadyToProfile } from './common';
+import { BoundaryInput, boundaryFilterLag, findEndSensors, makeBoundaryFilter, InletTemperature, PredictionLag, sampleSensors, steadyFromEnd, steadyToProfile } from './common';
 
 interface EndInput {
   kind: 'p' | 'q';
@@ -40,14 +40,14 @@ export class TransientTwin implements TwinModel {
     this.model = new PipeModel(cfg);
     this.solver = new MocSolver(this.model);
     const e = findEndSensors(cfg);
-    const tf = cfg.twin.inputFilterSec ?? 0;
-    this.inlet = e.pIn ? { kind: 'p', input: new BoundaryInput(e.pIn, tf) } : e.qIn ? { kind: 'q', input: new BoundaryInput(e.qIn, tf) } : null;
-    this.outlet = e.pOut ? { kind: 'p', input: new BoundaryInput(e.pOut, tf) } : e.qOut ? { kind: 'q', input: new BoundaryInput(e.qOut, tf) } : null;
+    const inp = (s: SensorSpec) => new BoundaryInput(s, makeBoundaryFilter(cfg, s));
+    this.inlet = e.pIn ? { kind: 'p', input: inp(e.pIn) } : e.qIn ? { kind: 'q', input: inp(e.qIn) } : null;
+    this.outlet = e.pOut ? { kind: 'p', input: inp(e.pOut) } : e.qOut ? { kind: 'q', input: inp(e.qOut) } : null;
     this.tin = new InletTemperature(cfg, e.TIn);
     this.prev = null;
     this.init = null;
     const inputs = [this.inlet, this.outlet].filter((x): x is EndInput => !!x).map((x) => cfg.sensors.find((s) => s.id === x.input.id)!);
-    this.lag = new PredictionLag(cfg.sensors, inputs, cfg.twin.inputFilterSec ?? 0);
+    this.lag = new PredictionLag(cfg.sensors, inputs, boundaryFilterLag(cfg));
   }
 
   get waveSpeed(): number {

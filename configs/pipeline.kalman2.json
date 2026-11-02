@@ -1,0 +1,170 @@
+{
+  "$schema": "../schemas/pipeline.schema.json",
+  "schemaVersion": 1,
+  "meta": {
+    "name": "default-50km-crude-kalman2",
+    "description": "Участок по умолчанию: 50 км, Ø530×8, лёгкая нефть 60 °C, подземная прокладка. Значения — наши допущения (ТЗ, разделы 2 и 6), не норматив. Всё в СИ, давления абсолютные."
+  },
+  "geometry": {
+    "length": 50000,
+    "diameter": 0.514,
+    "wallThickness": 0.008,
+    "wallModulus": 210000000000.0,
+    "roughness": 5e-05,
+    "elevation": [
+      [
+        0,
+        120
+      ],
+      [
+        20000,
+        150
+      ],
+      [
+        50000,
+        90
+      ]
+    ]
+  },
+  "fluid": {
+    "name": "light-crude",
+    "phase": "liquid",
+    "density": {
+      "model": "linear",
+      "rho20": 850,
+      "xi": 0.7
+    },
+    "viscosity": {
+      "model": "filonov-reynolds",
+      "nu0": 1e-05,
+      "T0": 293.15,
+      "u": 0.03
+    },
+    "heatCapacity": 2000,
+    "bulkModulus": 1500000000.0,
+    "vaporPressure": 30000
+  },
+  "thermal": {
+    "ambientTemp": 278.15,
+    "heatTransferCoef": 2
+  },
+  "boundary": {
+    "inlet": {
+      "type": "pump",
+      "suctionPressure": 300000,
+      "H0": 520,
+      "b": 794
+    },
+    "outlet": {
+      "type": "valve",
+      "downstreamPressure": 500000,
+      "cv": 0.0082,
+      "opening": 0.8
+    },
+    "inletTemp": 333.15
+  },
+  "sensors": [
+    {
+      "id": "p_in",
+      "kind": "p",
+      "x": 0,
+      "label": "Давление, вход",
+      "range": [
+        101325,
+        6500000
+      ],
+      "noisePct": 0.2,
+      "lagSec": 0.5
+    },
+    {
+      "id": "q_in",
+      "kind": "q",
+      "x": 0,
+      "label": "Расход, вход",
+      "range": [
+        0,
+        0.6
+      ],
+      "noisePct": 0.5,
+      "lagSec": 1.0
+    },
+    {
+      "id": "T_in",
+      "kind": "T",
+      "x": 0,
+      "label": "Температура, вход",
+      "noiseK": 0.1,
+      "lagSec": 5.0
+    },
+    {
+      "id": "p_km10",
+      "kind": "p",
+      "x": 10000,
+      "label": "Давление, км 10",
+      "range": [
+        101325,
+        6500000
+      ],
+      "noisePct": 0.2,
+      "lagSec": 0.5
+    },
+    {
+      "id": "p_km25",
+      "kind": "p",
+      "x": 25000,
+      "label": "Давление, км 25",
+      "range": [
+        101325,
+        6500000
+      ],
+      "noisePct": 0.2,
+      "lagSec": 0.5
+    },
+    {
+      "id": "p_out",
+      "kind": "p",
+      "x": 50000,
+      "label": "Давление, выход",
+      "range": [
+        101325,
+        6500000
+      ],
+      "noisePct": 0.2,
+      "lagSec": 0.5
+    },
+    {
+      "id": "q_out",
+      "kind": "q",
+      "x": 50000,
+      "label": "Расход, выход",
+      "range": [
+        0,
+        0.6
+      ],
+      "noisePct": 0.5,
+      "lagSec": 1.0
+    },
+    {
+      "id": "T_out",
+      "kind": "T",
+      "x": 50000,
+      "label": "Температура, выход",
+      "noiseK": 0.1,
+      "lagSec": 5.0
+    }
+  ],
+  "sampling": {
+    "rateHz": 10
+  },
+  "ambientPressure": 101325,
+  "twin": {
+    "boundaryMode": "auto",
+    "inputFilterSec": 2,
+    "inputFilter": "kalman"
+  },
+  "numerics": {
+    "dx": 100,
+    "frictionModel": "colebrook",
+    "thermalMode": "quasi-steady"
+  }
+}
