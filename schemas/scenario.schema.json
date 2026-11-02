@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pipetwin.local/schemas/scenario.schema.json",
+  "title": "Scenario",
+  "description": "Сценарий эксперимента (configs/scenarios/*.json): труба, отличия «настоящей» трубы от знаний twin, источник данных, события во времени. Тип Scenario в packages/core/src/contracts.ts.",
+  "type": "object",
+  "required": ["schemaVersion", "id", "pipeline", "source", "durationSec", "seed", "events"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$" },
+    "description": { "type": "string" },
+    "pipeline": {
+      "description": "Путь к конфигу трубы от корня репозитория или сам конфиг",
+      "oneOf": [
+        { "type": "string" },
+        { "$ref": "pipeline.schema.json" }
+      ]
+    },
+    "truthOverrides": {
+      "description": "Отличия plant от twin (например, шероховатость). Те же поля, что в конфиге трубы; применяются только к plant",
+      "type": "object"
+    },
+    "source": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type"],
+          "additionalProperties": false,
+          "properties": { "type": { "const": "simulated" } }
+        },
+        {
+          "type": "object",
+          "required": ["type", "file"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "replay" },
+            "file": { "type": "string", "description": "Путь к записи" },
+            "mapping": { "type": "string", "description": "Имя профиля в configs/mappings/" },
+            "labels": { "type": "string", "description": "Путь к файлу разметки утечек (leak-labels.schema.json)" }
+          }
+        }
+      ]
+    },
+    "durationSec": { "type": "number", "exclusiveMinimum": 0 },
+    "seed": { "type": "integer" },
+    "noiseScale": { "type": "number", "minimum": 0, "default": 1 },
+    "warmupSec": { "type": "number", "minimum": 0, "default": 60 },
+    "split": { "enum": ["validation", "test", "demo"] },
+    "events": { "type": "array", "items": { "$ref": "#/$defs/event" } },
+    "overlayLeaks": { "type": "array", "items": { "$ref": "#/$defs/leakEvent" } },
+    "tags": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "event": {
+      "oneOf": [
+        { "$ref": "#/$defs/leakEvent" },
+        {
+          "type": "object",
+          "required": ["t", "type", "changePct"],
+          "additionalProperties": false,
+          "properties": {
+            "t": { "type": "number", "minimum": 0 },
+            "type": { "const": "pump" },
+            "changePct": { "type": "number", "description": "Изменение напора насоса, % (+10 = рост на 10%)" },
+            "rampSec": { "type": "number", "minimum": 0 }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["t", "type", "opening"],
+          "additionalProperties": false,
+          "properties": {
+            "t": { "type": "number", "minimum": 0 },
+            "type": { "const": "valve" },
+            "opening": { "type": "number", "minimum": 0, "maximum": 1, "description": "Новая степень открытия задвижки на выходе" },
+            "rampSec": { "type": "number", "minimum": 0 }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["t", "type", "scale"],
+          "additionalProperties": false,
+          "properties": {
+            "t": { "type": "number", "minimum": 0 },
+            "type": { "const": "noise" },
+            "scale": { "type": "number", "minimum": 0, "description": "Новый множитель шума всех датчиков" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["t", "type", "sensorId", "mode"],
+          "additionalProperties": false,
+          "properties": {
+            "t": { "type": "number", "minimum": 0 },
+            "type": { "const": "sensor-fault" },
+            "sensorId": { "type": "string" },
+            "mode": { "enum": ["stuck", "step", "drift", "dropout", "spike"] },
+            "magnitude": { "type": "number", "description": "Величина отказа в долях noiseStd (для step, drift, spike)" },
+            "durationSec": { "type": "number", "minimum": 0 }
+          }
+        }
+      ]
+    },
+    "leakEvent": {
+      "type": "object",
+      "required": ["t", "type", "x"],
+      "additionalProperties": false,
+      "properties": {
+        "t": { "type": "number", "minimum": 0 },
+        "type": { "const": "leak" },
+        "id": { "type": "string" },
+        "x": { "type": "number", "minimum": 0, "description": "Место утечки, м от входа" },
+        "sizePct": { "type": "number", "exclusiveMinimum": 0, "description": "% от расхода на входе до утечки" },
+        "area": { "type": "number", "exclusiveMinimum": 0, "description": "Площадь отверстия, м²" },
+        "cd": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "rampSec": { "type": "number", "minimum": 0, "default": 0 }
+      },
+      "oneOf": [
+        { "required": ["sizePct"], "not": { "required": ["area"] } },
+        { "required": ["area"], "not": { "required": ["sizePct"] } }
+      ]
+    }
+  }
+}

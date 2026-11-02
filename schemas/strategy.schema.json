@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pipetwin.local/schemas/strategy.schema.json",
+  "title": "SelectedStrategyFile",
+  "description": "Выбранная стратегия детекции (configs/strategy.selected.json). Пишет select_strategy.py, читают интерфейс и стенд. Тип SelectedStrategyFile в packages/core/src/contracts.ts.",
+  "type": "object",
+  "required": ["schemaVersion", "strategy", "params", "localization", "signatureFilter", "warmupSec", "selectedAt", "evidence"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "strategy": { "$ref": "#/$defs/detectorName" },
+    "params": { "$ref": "#/$defs/params" },
+    "members": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["detector", "params"],
+        "additionalProperties": false,
+        "properties": {
+          "detector": { "$ref": "#/$defs/detectorName" },
+          "params": { "$ref": "#/$defs/params" },
+          "weight": { "type": "number", "minimum": 0 }
+        }
+      }
+    },
+    "fusionRule": { "enum": ["vote", "weighted-sum"] },
+    "localization": { "enum": ["hgl", "lsq", "wave-timing"] },
+    "signatureFilter": { "type": "boolean" },
+    "warmupSec": { "type": "number", "minimum": 0 },
+    "selectedAt": { "type": ["string", "null"], "format": "date-time" },
+    "evidence": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["ttd_med_s", "mdl_pct", "far_per_day"],
+          "additionalProperties": false,
+          "properties": {
+            "ttd_med_s": { "type": "number", "minimum": 0 },
+            "ttd_p95_s": { "type": "number", "minimum": 0 },
+            "mdl_pct": { "type": "number", "minimum": 0 },
+            "far_per_day": { "type": "number", "minimum": 0 },
+            "loc_med_m": { "type": "number", "minimum": 0 },
+            "pod_5pct": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
+      ]
+    },
+    "runnerUp": { "oneOf": [{ "$ref": "#/$defs/detectorName" }, { "type": "null" }] },
+    "runsHash": { "type": "string" }
+  },
+  "if": { "properties": { "strategy": { "const": "fusion" } } },
+  "then": { "required": ["members", "fusionRule"] },
+  "$defs": {
+    "detectorName": {
+      "enum": ["threshold", "cusum", "ewma", "mass-balance", "npw", "kalman", "fusion", "rls", "pca"]
+    },
+    "params": {
+      "description": "Параметры детектора в долях σ и секундах",
+      "type": "object",
+      "additionalProperties": { "type": "number" }
+    }
+  }
+}

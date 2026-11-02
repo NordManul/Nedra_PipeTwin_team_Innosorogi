@@ -1,0 +1,21 @@
+{
+  "$schema": "../../schemas/scenario.schema.json",
+  "schemaVersion": 1,
+  "id": "example-regime-no-leak",
+  "description": "Пример для E5: режимные события без утечки — честная система не должна дать ни одной тревоги.",
+  "pipeline": "configs/pipeline.default.json",
+  "truthOverrides": {
+    "geometry": { "roughness": "0,08 мм" }
+  },
+  "source": { "type": "simulated" },
+  "durationSec": 600,
+  "seed": 101,
+  "split": "test",
+  "events": [
+    { "t": 120, "type": "pump", "changePct": -10, "rampSec": 5 },
+    { "t": 240, "type": "valve", "opening": 0.6, "rampSec": 10 },
+    { "t": 360, "type": "valve", "opening": 0.8, "rampSec": 10 },
+    { "t": 480, "type": "sensor-fault", "sensorId": "p_km25", "mode": "step", "magnitude": 8, "durationSec": 60 }
+  ],
+  "tags": ["example", "E5", "no-leak"]
+}

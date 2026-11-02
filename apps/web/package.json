@@ -1,0 +1,12 @@
+{
+  "name": "@pipetwin/web",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Демо-интерфейс PipeTwin: схема трубы, клик-утечка, секундомер, графики, карточка события",
+  "type": "module",
+  "dependencies": {
+    "@pipetwin/core": "*",
+    "@pipetwin/detect": "*",
+    "@pipetwin/io": "*"
+  }
+}

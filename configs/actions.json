@@ -1,0 +1,48 @@
+{
+  "$schema": "../schemas/actions.schema.json",
+  "schemaVersion": 1,
+  "rules": [
+    {
+      "id": "sensor-fault",
+      "when": { "eventClass": "sensor-fault" },
+      "severity": "warning",
+      "text": "Подозрение на отказ датчика {sensor}. Создать заявку на проверку прибора; показания исключены из расчёта."
+    },
+    {
+      "id": "leak-low-confidence",
+      "when": { "eventClass": "leak", "confidenceMax": 0.5 },
+      "severity": "info",
+      "text": "Возможная утечка у км {x_km} ± {x_err_km} (уверенность {confidence_pct}%). Усиленный мониторинг, повторная проверка через 5 минут."
+    },
+    {
+      "id": "leak-large",
+      "when": { "eventClass": "leak", "leakFractionMin": 0.05 },
+      "severity": "critical",
+      "text": "Утечка ≈ {rate_m3h} м³/ч ({frac_pct}% расхода) у км {x_km} ± {x_err_km}. Остановить перекачку и закрыть задвижки вокруг места."
+    },
+    {
+      "id": "leak-medium",
+      "when": { "eventClass": "leak", "leakFractionMin": 0.01, "leakFractionMax": 0.05 },
+      "severity": "critical",
+      "text": "Утечка ≈ {rate_m3h} м³/ч ({frac_pct}% расхода) у км {x_km} ± {x_err_km}. Снизить давление, направить обход на участок."
+    },
+    {
+      "id": "leak-small",
+      "when": { "eventClass": "leak", "leakFractionMax": 0.01 },
+      "severity": "warning",
+      "text": "Малая утечка ≈ {rate_m3h} м³/ч у км {x_km} ± {x_err_km}. Усиленный мониторинг, повторная проверка."
+    },
+    {
+      "id": "regime-change",
+      "when": { "eventClass": ["pump-change", "valve-change"] },
+      "severity": "info",
+      "text": "Смена режима перекачки, утечка не обнаружена."
+    },
+    {
+      "id": "fallback",
+      "when": {},
+      "severity": "warning",
+      "text": "Отклонение от модели неясной природы. Проверить режим и показания датчиков."
+    }
+  ]
+}

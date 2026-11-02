@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pipetwin.local/schemas/mapping.schema.json",
+  "title": "MappingProfile",
+  "description": "Профиль маппинга колонок чужого файла в датчики (configs/mappings/<имя>.json, WP-C2). Тип MappingProfile в packages/core/src/contracts.ts.",
+  "type": "object",
+  "required": ["schemaVersion", "name", "time", "columns"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$" },
+    "description": { "type": "string" },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "delimiter": { "enum": [",", ";", "\t", " "] },
+        "decimal": { "enum": [".", ","] },
+        "encoding": { "enum": ["utf-8", "windows-1251"] },
+        "headerRow": { "type": "integer", "minimum": 0 },
+        "unitsRow": { "type": "integer", "minimum": 0 },
+        "sheet": { "type": ["string", "integer"] }
+      }
+    },
+    "time": {
+      "type": "object",
+      "required": ["column", "format"],
+      "additionalProperties": false,
+      "properties": {
+        "column": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "prefixItems": [{ "type": "string" }, { "type": "string" }], "minItems": 2, "maxItems": 2 }
+          ]
+        },
+        "format": { "type": "string", "description": "iso, unix-s, unix-ms, excel или шаблон dd.MM.yyyy HH:mm:ss.SSS" },
+        "timezone": { "type": "string", "description": "IANA, например Europe/Moscow" }
+      }
+    },
+    "columns": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["source", "sensorId", "kind", "unit"],
+        "additionalProperties": false,
+        "properties": {
+          "source": { "type": "string" },
+          "sensorId": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]*$" },
+          "kind": { "enum": ["p", "T", "q"] },
+          "unit": { "type": "string" },
+          "pressureReference": { "enum": ["gauge", "absolute"], "default": "gauge" },
+          "x": { "type": "number", "minimum": 0 }
+        }
+      }
+    },
+    "ignore": { "type": "array", "items": { "type": "string" } }
+  }
+}

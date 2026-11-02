@@ -1,0 +1,18 @@
+{
+  "$schema": "../schemas/selection.schema.json",
+  "schemaVersion": 1,
+  "weights": { "ttd_med": 0.35, "ttd_p95": 0.15, "mdl": 0.25, "loc_med": 0.15, "far": 0.10 },
+  "ttdMinLeakFraction": 0.02,
+  "filters": {
+    "farPerDayMax": 2,
+    "podMin": 0.9,
+    "podLeakFraction": 0.05,
+    "regimeFalseAlarmsMax": 0,
+    "cpuMsPerTickMax": 2
+  },
+  "targetFarPerDay": 1,
+  "mdlPod": 0.9,
+  "seeds": { "validation": [1, 2, 3, 4, 5], "test": [101, 102, 103, 104, 105] },
+  "bootstrap": { "samples": 1000, "confidence": 0.95 },
+  "simplicityOrder": ["threshold", "ewma", "cusum", "mass-balance", "rls", "pca", "npw", "kalman", "fusion"]
+}

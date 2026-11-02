@@ -1,0 +1,4 @@
+scenario_id,strategy_id,seed,leak_present,leak_x,leak_frac,t_leak,t_alarm,ttd,false_alarms,loc_est,loc_err,rate_est,rate_err,v_loss,cpu_ms_per_tick,split,noleak_s,ttd_min_phys
+grid-l2-x0.5-n0.3-r0,cusum:k=0.5;h=6.2,101,1,25000,0.02,60,62.4,2.4,0,24790,210,0.0061,0.016,0.012,0.08,test,60,0.0
+grid-l0.5-x0.9-n0.5-r30,cusum:k=0.5;h=6.2,102,1,45000,0.005,60,,,0,,,,,0.093,0.08,test,60,4.8
+regime-pump-plus10,cusum:k=0.5;h=6.2,101,0,,,,,,0,,,,,,0.08,test,600,

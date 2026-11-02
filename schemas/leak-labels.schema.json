@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pipetwin.local/schemas/leak-labels.schema.json",
+  "title": "LeakLabelsFile",
+  "description": "Разметка утечек в записи для replay-сценариев. Тип LeakLabelsFile в packages/core/src/contracts.ts.",
+  "type": "object",
+  "required": ["schemaVersion", "recording", "leaks"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "recording": { "type": "string", "description": "Путь к записи, к которой относится разметка" },
+    "leaks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "x", "tStart"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "x": { "type": "number", "minimum": 0, "description": "м от входа" },
+          "tStart": { "type": "number", "minimum": 0, "description": "с от начала записи" },
+          "tEnd": { "type": "number", "minimum": 0 },
+          "rate": { "type": "number", "minimum": 0, "description": "м³/с" },
+          "fraction": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,303 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pipetwin.local/schemas/pipeline.schema.json",
+  "title": "PipelineConfigInput",
+  "description": "Входной конфиг участка трубопровода (configs/pipeline.*.json). Любое числовое поле — число в СИ, строка с единицей («530 мм») или объект {value, unit, status, source}. Отсутствующие поля дополняет resolveConfig со статусом default. Разрешённый конфиг (все поля в СИ) — тип PipelineConfig в packages/core/src/contracts.ts.",
+  "type": "object",
+  "required": ["schemaVersion"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" }
+      }
+    },
+    "geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "length": { "$ref": "#/$defs/quantity", "description": "Длина участка, м" },
+        "diameter": { "$ref": "#/$defs/quantity", "description": "Внутренний диаметр, м" },
+        "wallThickness": { "$ref": "#/$defs/quantity", "description": "Толщина стенки, м" },
+        "wallModulus": { "$ref": "#/$defs/quantity", "description": "Модуль упругости стенки, Па" },
+        "roughness": { "$ref": "#/$defs/quantity", "description": "Эквивалентная шероховатость, м" },
+        "elevation": {
+          "description": "Профиль высот: точки [x, z], м; x по возрастанию",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "array",
+            "prefixItems": [{ "$ref": "#/$defs/quantity" }, { "$ref": "#/$defs/quantity" }],
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      }
+    },
+    "fluid": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "description": "Имя из библиотеки: light-crude, heavy-crude, diesel, water, natural-gas — или своё" },
+        "phase": { "enum": ["liquid", "gas"] },
+        "density": { "$ref": "#/$defs/densityModel" },
+        "viscosity": { "$ref": "#/$defs/viscosityModel" },
+        "heatCapacity": { "$ref": "#/$defs/quantity", "description": "Дж/(кг·К)" },
+        "bulkModulus": { "$ref": "#/$defs/quantity", "description": "Па" },
+        "vaporPressure": { "$ref": "#/$defs/quantity", "description": "Па (абс.)" }
+      }
+    },
+    "thermal": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ambientTemp": { "$ref": "#/$defs/quantity", "description": "К" },
+        "heatTransferCoef": { "$ref": "#/$defs/quantity", "description": "Вт/(м²·К)" }
+      }
+    },
+    "boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "inlet": { "$ref": "#/$defs/inletBoundary" },
+        "outlet": { "$ref": "#/$defs/outletBoundary" },
+        "inletTemp": { "$ref": "#/$defs/schedule", "description": "К" }
+      }
+    },
+    "sensors": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/sensor" }
+    },
+    "sampling": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rateHz": { "$ref": "#/$defs/quantity", "description": "Номинальная частота опроса, Гц" }
+      }
+    },
+    "ambientPressure": { "$ref": "#/$defs/quantity", "description": "Атмосферное давление, Па" },
+    "twin": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "boundaryMode": { "enum": ["auto", "p_in+q_in", "p_in+p_out", "p_out+q_out"] },
+        "inletPressureSensor": { "$ref": "#/$defs/sensorId" },
+        "outletPressureSensor": { "$ref": "#/$defs/sensorId" },
+        "flowSensor": { "$ref": "#/$defs/sensorId" },
+        "inletTempSensor": { "$ref": "#/$defs/sensorId" }
+      }
+    },
+    "numerics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dx": { "$ref": "#/$defs/quantity", "description": "Шаг сетки, м" },
+        "frictionModel": { "enum": ["colebrook", "swamee-jain", "haaland"] },
+        "thermalMode": { "enum": ["none", "quasi-steady", "advection"] },
+        "waveSpeed": { "$ref": "#/$defs/quantity", "description": "Принудительная скорость волны, м/с" }
+      }
+    }
+  },
+  "$defs": {
+    "status": { "enum": ["given", "default", "calibrated"] },
+    "quantity": {
+      "description": "Число в СИ, строка с единицей («1,2 МПа») или объект с явными единицей и статусом",
+      "oneOf": [
+        { "type": "number" },
+        { "type": "string", "minLength": 1 },
+        {
+          "type": "object",
+          "required": ["value"],
+          "additionalProperties": false,
+          "properties": {
+            "value": { "type": ["number", "string"] },
+            "unit": { "type": "string" },
+            "status": { "$ref": "#/$defs/status" },
+            "source": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "schedule": {
+      "description": "Постоянная величина или кусочно-заданная функция времени",
+      "oneOf": [
+        { "$ref": "#/$defs/quantity" },
+        {
+          "type": "object",
+          "required": ["points"],
+          "additionalProperties": false,
+          "properties": {
+            "points": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "array",
+                "prefixItems": [{ "type": "number" }, { "$ref": "#/$defs/quantity" }],
+                "minItems": 2,
+                "maxItems": 2
+              }
+            },
+            "interp": { "enum": ["linear", "step"], "default": "linear" }
+          }
+        }
+      ]
+    },
+    "sensorId": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]*$" },
+    "densityModel": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["model", "rho"],
+          "additionalProperties": false,
+          "properties": { "model": { "const": "constant" }, "rho": { "$ref": "#/$defs/quantity" } }
+        },
+        {
+          "type": "object",
+          "required": ["model", "rho20", "xi"],
+          "additionalProperties": false,
+          "properties": {
+            "model": { "const": "linear" },
+            "rho20": { "$ref": "#/$defs/quantity", "description": "Плотность при 20 °C, кг/м³" },
+            "xi": { "$ref": "#/$defs/quantity", "description": "Температурная поправка, кг/(м³·К)" }
+          }
+        }
+      ]
+    },
+    "viscosityModel": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["model", "nu"],
+          "additionalProperties": false,
+          "properties": { "model": { "const": "constant" }, "nu": { "$ref": "#/$defs/quantity" } }
+        },
+        {
+          "type": "object",
+          "required": ["model", "nu0", "T0", "u"],
+          "additionalProperties": false,
+          "properties": {
+            "model": { "const": "filonov-reynolds" },
+            "nu0": { "$ref": "#/$defs/quantity", "description": "ν при T0, м²/с" },
+            "T0": { "$ref": "#/$defs/quantity", "description": "К" },
+            "u": { "$ref": "#/$defs/quantity", "description": "Коэффициент крутизны вискограммы, 1/К" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["model", "points"],
+          "additionalProperties": false,
+          "properties": {
+            "model": { "const": "walther" },
+            "points": {
+              "description": "Две точки [T, ν]",
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "array",
+                "prefixItems": [{ "$ref": "#/$defs/quantity" }, { "$ref": "#/$defs/quantity" }],
+                "minItems": 2,
+                "maxItems": 2
+              }
+            }
+          }
+        }
+      ]
+    },
+    "inletBoundary": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "pressure"],
+          "additionalProperties": false,
+          "properties": { "type": { "const": "pressure" }, "pressure": { "$ref": "#/$defs/schedule" } }
+        },
+        {
+          "type": "object",
+          "required": ["type", "flow"],
+          "additionalProperties": false,
+          "properties": { "type": { "const": "flow" }, "flow": { "$ref": "#/$defs/schedule" } }
+        },
+        {
+          "type": "object",
+          "required": ["type", "suctionPressure", "H0", "b"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "pump" },
+            "suctionPressure": { "$ref": "#/$defs/schedule" },
+            "H0": { "$ref": "#/$defs/quantity", "description": "Напор при нулевой подаче, м" },
+            "b": { "$ref": "#/$defs/quantity", "description": "с²/м⁵" },
+            "speed": { "$ref": "#/$defs/schedule", "description": "Относительная частота вращения" }
+          }
+        }
+      ]
+    },
+    "outletBoundary": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "pressure"],
+          "additionalProperties": false,
+          "properties": { "type": { "const": "pressure" }, "pressure": { "$ref": "#/$defs/schedule" } }
+        },
+        {
+          "type": "object",
+          "required": ["type", "flow"],
+          "additionalProperties": false,
+          "properties": { "type": { "const": "flow" }, "flow": { "$ref": "#/$defs/schedule" } }
+        },
+        {
+          "type": "object",
+          "required": ["type", "downstreamPressure", "cv", "opening"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "valve" },
+            "downstreamPressure": { "$ref": "#/$defs/schedule" },
+            "cv": { "$ref": "#/$defs/quantity", "description": "м²" },
+            "opening": { "$ref": "#/$defs/schedule", "description": "0..1" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type"],
+          "additionalProperties": false,
+          "properties": { "type": { "const": "closed" } }
+        }
+      ]
+    },
+    "sensor": {
+      "type": "object",
+      "required": ["id", "kind", "x"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/sensorId" },
+        "kind": { "enum": ["p", "T", "q"] },
+        "x": { "$ref": "#/$defs/quantity", "description": "Положение от входа, м" },
+        "label": { "type": "string" },
+        "noiseStd": { "$ref": "#/$defs/quantity", "description": "СКО шума в единицах величины" },
+        "noisePct": { "type": "number", "minimum": 0, "description": "СКО шума в % ширины шкалы range; переводится в noiseStd" },
+        "noiseK": { "type": "number", "minimum": 0, "description": "СКО шума датчика температуры, К (синоним noiseStd для kind = T)" },
+        "lagSec": { "type": "number", "minimum": 0 },
+        "drift": { "$ref": "#/$defs/quantity", "description": "Единицы величины в секунду" },
+        "bias": { "$ref": "#/$defs/quantity" },
+        "quantum": { "$ref": "#/$defs/quantity" },
+        "range": {
+          "type": "array",
+          "prefixItems": [{ "$ref": "#/$defs/quantity" }, { "$ref": "#/$defs/quantity" }],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "dropoutProb": { "type": "number", "minimum": 0, "maximum": 1 },
+        "outlierProb": { "type": "number", "minimum": 0, "maximum": 1 },
+        "outlierScale": { "type": "number", "minimum": 0 },
+        "timeJitterSec": { "type": "number", "minimum": 0 }
+      },
+      "not": { "required": ["noiseStd", "noisePct"] }
+    }
+  }
+}

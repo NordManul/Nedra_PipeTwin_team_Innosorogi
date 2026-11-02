@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pipetwin.local/schemas/actions.schema.json",
+  "title": "ActionsFile",
+  "description": "Таблица правил рекомендаций для карточки события (configs/actions.json, WP-B10). Правила проверяются по порядку, срабатывает первое подходящее. Тип ActionsFile в packages/core/src/contracts.ts.",
+  "type": "object",
+  "required": ["schemaVersion", "rules"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "when", "severity", "text"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "when": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "eventClass": {
+                "oneOf": [
+                  { "$ref": "#/$defs/eventClass" },
+                  { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/eventClass" } }
+                ]
+              },
+              "leakFractionMin": { "type": "number", "minimum": 0 },
+              "leakFractionMax": { "type": "number", "minimum": 0 },
+              "confidenceMin": { "type": "number", "minimum": 0, "maximum": 1 },
+              "confidenceMax": { "type": "number", "minimum": 0, "maximum": 1 }
+            }
+          },
+          "severity": { "enum": ["info", "warning", "critical"] },
+          "text": { "type": "string", "description": "Шаблон: {x_km}, {x_err_km}, {rate_m3h}, {frac_pct}, {sensor}, {confidence_pct}" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "eventClass": { "enum": ["leak", "pump-change", "valve-change", "sensor-fault", "unknown"] }
+  }
+}

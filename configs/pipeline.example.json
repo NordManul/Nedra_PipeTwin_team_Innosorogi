@@ -1,0 +1,39 @@
+{
+  "$schema": "../schemas/pipeline.schema.json",
+  "schemaVersion": 1,
+  "meta": {
+    "name": "example-passport",
+    "description": "Пример входного конфига «как в паспорте»: единицы строками, явные статусы и источники, часть полей отсутствует (wallModulus, vaporPressure, heatTransferCoef, numerics) — их дополнит resolveConfig со статусом default."
+  },
+  "geometry": {
+    "length": "50 км",
+    "diameter": { "value": "514 мм", "status": "given", "source": "паспорт.xlsx, лист 1, строка 4" },
+    "wallThickness": "8 мм",
+    "roughness": { "value": 0.05, "unit": "мм", "status": "default", "source": "library:steel-new" },
+    "elevation": [["0 км", "120 м"], ["20 км", "150 м"], ["50 км", "90 м"]]
+  },
+  "fluid": {
+    "name": "light-crude",
+    "phase": "liquid",
+    "density": { "model": "linear", "rho20": "850 кг/м3", "xi": 0.7 },
+    "viscosity": { "model": "walther", "points": [["20 °C", "10 сСт"], ["50 °C", "4,2 сСт"]] },
+    "heatCapacity": "2,0 кДж/(кг·К)",
+    "bulkModulus": "1,5 ГПа"
+  },
+  "thermal": {
+    "ambientTemp": "5 °C"
+  },
+  "boundary": {
+    "inlet": { "type": "pressure", "pressure": "39 бар" },
+    "outlet": { "type": "pressure", "pressure": { "points": [[0, "22,9 бар"], [600, "23,5 бар"]], "interp": "linear" } },
+    "inletTemp": "60 °C"
+  },
+  "sensors": [
+    { "id": "p_in",   "kind": "p", "x": 0,       "noiseStd": "0,1 бар", "lagSec": 0.5 },
+    { "id": "q_in",   "kind": "q", "x": 0,       "noiseStd": "5 м3/ч",  "lagSec": 1 },
+    { "id": "p_km25", "kind": "p", "x": "25 км", "noiseStd": "0,1 бар", "lagSec": 0.5 },
+    { "id": "p_out",  "kind": "p", "x": "50 км", "noiseStd": "0,1 бар", "lagSec": 0.5 },
+    { "id": "q_out",  "kind": "q", "x": "50 км", "noiseStd": "5 м3/ч",  "lagSec": 1 }
+  ],
+  "sampling": { "rateHz": 10 }
+}

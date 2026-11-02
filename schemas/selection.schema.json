@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pipetwin.local/schemas/selection.schema.json",
+  "title": "SelectionFile",
+  "description": "Веса, фильтры и процедура автоматического выбора стратегии (configs/selection.json, ТЗ раздел 14). Тип SelectionFile в packages/core/src/contracts.ts.",
+  "type": "object",
+  "required": ["schemaVersion", "weights", "ttdMinLeakFraction", "filters", "targetFarPerDay", "mdlPod", "seeds", "bootstrap", "simplicityOrder"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "weights": {
+      "type": "object",
+      "required": ["ttd_med", "ttd_p95", "mdl", "loc_med", "far"],
+      "additionalProperties": false,
+      "properties": {
+        "ttd_med": { "type": "number", "minimum": 0 },
+        "ttd_p95": { "type": "number", "minimum": 0 },
+        "mdl": { "type": "number", "minimum": 0 },
+        "loc_med": { "type": "number", "minimum": 0 },
+        "far": { "type": "number", "minimum": 0 }
+      }
+    },
+    "ttdMinLeakFraction": { "type": "number", "minimum": 0, "maximum": 1 },
+    "filters": {
+      "type": "object",
+      "required": ["farPerDayMax", "podMin", "podLeakFraction", "regimeFalseAlarmsMax", "cpuMsPerTickMax"],
+      "additionalProperties": false,
+      "properties": {
+        "farPerDayMax": { "type": "number", "minimum": 0 },
+        "podMin": { "type": "number", "minimum": 0, "maximum": 1 },
+        "podLeakFraction": { "type": "number", "minimum": 0, "maximum": 1 },
+        "regimeFalseAlarmsMax": { "type": "integer", "minimum": 0 },
+        "cpuMsPerTickMax": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "targetFarPerDay": { "type": "number", "exclusiveMinimum": 0 },
+    "mdlPod": { "type": "number", "minimum": 0, "maximum": 1 },
+    "seeds": {
+      "type": "object",
+      "required": ["validation", "test"],
+      "additionalProperties": false,
+      "properties": {
+        "validation": { "type": "array", "minItems": 1, "items": { "type": "integer" } },
+        "test": { "type": "array", "minItems": 1, "items": { "type": "integer" } }
+      }
+    },
+    "bootstrap": {
+      "type": "object",
+      "required": ["samples", "confidence"],
+      "additionalProperties": false,
+      "properties": {
+        "samples": { "type": "integer", "minimum": 1 },
+        "confidence": { "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1 }
+      }
+    },
+    "simplicityOrder": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "enum": ["threshold", "cusum", "ewma", "mass-balance", "npw", "kalman", "fusion", "rls", "pca"] }
+    }
+  }
+}

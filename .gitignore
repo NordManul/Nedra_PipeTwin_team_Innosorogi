@@ -1,0 +1,28 @@
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+.vite/
+coverage/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Результаты прогонов: большие и воспроизводимые
+results/ticks/*
+!results/ticks/.gitkeep
+results/cache/
+results/runs*.csv
+
+# Окружение и IDE
+.env
+.env.*
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json

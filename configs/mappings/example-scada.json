@@ -1,0 +1,29 @@
+{
+  "$schema": "../../schemas/mapping.schema.json",
+  "schemaVersion": 1,
+  "name": "example-scada",
+  "description": "Пример профиля для выгрузки SCADA (как в учебном пакете P2): cp1251, «;», десятичная запятая, дата и время в разных колонках, тэги КИП.",
+  "file": {
+    "delimiter": ";",
+    "decimal": ",",
+    "encoding": "windows-1251",
+    "headerRow": 3,
+    "unitsRow": 4
+  },
+  "time": {
+    "column": ["Дата", "Время"],
+    "format": "dd.MM.yyyy HH:mm:ss.SSS",
+    "timezone": "Europe/Moscow"
+  },
+  "columns": [
+    { "source": "PT-101", "sensorId": "p_in",   "kind": "p", "unit": "МПа",  "pressureReference": "gauge", "x": 0 },
+    { "source": "FT-201", "sensorId": "q_in",   "kind": "q", "unit": "м3/ч", "x": 0 },
+    { "source": "TT-301", "sensorId": "T_in",   "kind": "T", "unit": "°C",   "x": 0 },
+    { "source": "PT-102", "sensorId": "p_km10", "kind": "p", "unit": "МПа",  "pressureReference": "gauge", "x": 10000 },
+    { "source": "PT-103", "sensorId": "p_km25", "kind": "p", "unit": "МПа",  "pressureReference": "gauge", "x": 25000 },
+    { "source": "PT-104", "sensorId": "p_out",  "kind": "p", "unit": "МПа",  "pressureReference": "gauge", "x": 50000 },
+    { "source": "FT-202", "sensorId": "q_out",  "kind": "q", "unit": "м3/ч", "x": 50000 },
+    { "source": "TT-302", "sensorId": "T_out",  "kind": "T", "unit": "°C",   "x": 50000 }
+  ],
+  "ignore": ["Примечание"]
+}

@@ -1,0 +1,21 @@
+{
+  "$schema": "../../schemas/scenario.schema.json",
+  "schemaVersion": 1,
+  "id": "example-leak",
+  "description": "Пример из ТЗ (раздел 3.1): рост напора насоса на 10% в 30 с (не утечка — ложной тревоги быть не должно), утечка 2% на 23 км в 60 с с нарастанием 5 с.",
+  "pipeline": "configs/pipeline.default.json",
+  "truthOverrides": {
+    "geometry": { "roughness": "0,08 мм" }
+  },
+  "source": { "type": "simulated" },
+  "durationSec": 120,
+  "seed": 7,
+  "noiseScale": 1.5,
+  "warmupSec": 30,
+  "split": "demo",
+  "events": [
+    { "t": 30, "type": "pump", "changePct": 10, "rampSec": 3 },
+    { "t": 60, "type": "leak", "id": "L1", "x": 23000, "sizePct": 2, "rampSec": 5 }
+  ],
+  "tags": ["example", "regime-change", "leak"]
+}

@@ -1,0 +1,12 @@
+{
+  "$schema": "../schemas/strategy.schema.json",
+  "schemaVersion": 1,
+  "strategy": "threshold",
+  "params": { "k": 3, "windowSec": 2 },
+  "localization": "hgl",
+  "signatureFilter": true,
+  "warmupSec": 60,
+  "selectedAt": null,
+  "evidence": null,
+  "runnerUp": null
+}
