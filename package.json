@@ -16,7 +16,9 @@
     "import": "tsx packages/io/src/cli.ts",
     "fixtures": "tsx scripts/make-import-fixtures.ts",
     "bench": "tsx packages/bench/src/cli.ts",
-    "select": "python3 python/analysis/select_strategy.py"
+    "select": "python3 python/analysis/select_strategy.py",
+    "check:boundaries": "node scripts/check-boundaries.mjs",
+    "perf": "tsx scripts/perf.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

@@ -815,7 +815,7 @@ export interface ActionRule {
     confidenceMax?: number;
   };
   severity: Severity;
-  /** Шаблон текста. Подстановки: {x_km}, {x_err_km}, {rate_m3h}, {frac_pct}, {sensor}, {confidence_pct}. */
+  /** Шаблон текста. Подстановки: {place}, {x_km}, {x_err_km}, {rate_m3h}, {frac_pct}, {sensor}, {confidence_pct}. */
   text: string;
 }
 

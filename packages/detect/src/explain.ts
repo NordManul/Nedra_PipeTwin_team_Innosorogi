@@ -22,6 +22,8 @@ export interface ExplainOptions {
  * Калибруется по стенду: доля настоящих утечек среди тревог с таким запасом.
  */
 export function confidenceOf(out: DetectorOutput, cls: EventClass): number {
+  // отказ датчика и смена режима подтверждаются своими правилами (монитор отказов, скачок на конце трубы)
+  if (cls === 'sensor-fault' || cls === 'pump-change' || cls === 'valve-change') return 0.8;
   const ratio = out.threshold && out.threshold > 0 ? out.score / out.threshold : 1;
   let c = 0.5 + 0.45 * Math.tanh(1.2 * (ratio - 0.8));
   const strong = (out.contributions ?? []).filter((x) => x.share > 0.15).length;
@@ -37,9 +39,10 @@ export function matchRule(rules: ActionRule[], cls: EventClass, fraction: number
       const list = Array.isArray(w.eventClass) ? w.eventClass : [w.eventClass];
       if (!list.includes(cls)) return false;
     }
-    const f = fraction ?? 0;
-    if (w.leakFractionMin !== undefined && !(f >= w.leakFractionMin)) return false;
-    if (w.leakFractionMax !== undefined && !(f < w.leakFractionMax)) return false;
+    // размер ещё не оценён — правила с условием на размер не применяются
+    if ((w.leakFractionMin !== undefined || w.leakFractionMax !== undefined) && fraction === undefined) return false;
+    if (w.leakFractionMin !== undefined && !(fraction! >= w.leakFractionMin)) return false;
+    if (w.leakFractionMax !== undefined && !(fraction! < w.leakFractionMax)) return false;
     if (w.confidenceMin !== undefined && !(confidence >= w.confidenceMin)) return false;
     if (w.confidenceMax !== undefined && !(confidence < w.confidenceMax)) return false;
     return true;
@@ -50,7 +53,8 @@ export function renderTemplate(text: string, vars: Record<string, string>): stri
   return text.replace(/\{(\w+)\}/g, (m, k: string) => vars[k] ?? m);
 }
 
-const fmt = (v: number | undefined, digits: number) => (v === undefined || !Number.isFinite(v) ? '?' : v.toFixed(digits));
+/** Число для текста рекомендации: десятичная запятая, «?» — если значения нет. */
+const fmt = (v: number | undefined, digits: number) => (v === undefined || !Number.isFinite(v) ? '?' : v.toFixed(digits).replace('.', ','));
 
 export function buildEventCard(out: DetectorOutput, opts: ExplainOptions): EventCard {
   const cls: EventClass = out.eventClass ?? (out.alarm ? 'leak' : 'unknown');
@@ -59,12 +63,15 @@ export function buildEventCard(out: DetectorOutput, opts: ExplainOptions): Event
   const fraction = rate !== undefined && opts.nominalFlow ? rate / opts.nominalFlow : undefined;
   const onset = out.onsetTime ?? out.t;
   const vLoss = rate !== undefined ? rate * Math.max(0, out.t - onset) : undefined;
-  const contributions = out.contributions ?? [];
+  // для отказа датчика «вклад» — сам неисправный датчик
+  const faulty = cls === 'sensor-fault' ? out.unhealthySensors?.at(-1) : undefined;
+  const contributions = faulty ? [{ sensorId: faulty, share: 1 }] : out.contributions ?? [];
   const top = contributions[0]?.sensorId;
   const rule = matchRule(opts.rules, cls, fraction, confidence);
   const errKm = out.locationInterval ? (out.locationInterval[1] - out.locationInterval[0]) / 2000 : undefined;
   const text = rule
     ? renderTemplate(rule.text, {
+        place: out.location !== undefined ? `у км ${fmt(out.location / 1000, 1)}${errKm !== undefined ? ` ± ${fmt(errKm, 1)}` : ''}` : 'место уточняется',
         x_km: fmt(out.location !== undefined ? out.location / 1000 : undefined, 1),
         x_err_km: fmt(errKm, 1),
         rate_m3h: fmt(rate !== undefined ? rate * 3600 : undefined, 1),

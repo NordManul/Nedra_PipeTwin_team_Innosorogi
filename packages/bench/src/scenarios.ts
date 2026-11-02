@@ -143,10 +143,10 @@ export function suiteE6(o: SuiteOptions): Scenario[] {
   const L = lengthOf(o.pipeline);
   const seeds = (o.split === 'validation' ? o.seeds.validation : o.seeds.test).slice(0, o.quick ? 1 : 3);
   const errors: Array<[string, Record<string, unknown>]> = [
-    ['rough+20', { geometry: { roughness: '0,06 мм' } }],
-    ['rough-20', { geometry: { roughness: '0,04 мм' } }],
-    ['visc+15', { fluid: { viscosity: { model: 'filonov-reynolds', nu0: 11.5e-6, T0: 293.15, u: 0.03 } } }],
-    ['visc-15', { fluid: { viscosity: { model: 'filonov-reynolds', nu0: 8.5e-6, T0: 293.15, u: 0.03 } } }],
+    ['rough-up20', { geometry: { roughness: '0,06 мм' } }],
+    ['rough-down20', { geometry: { roughness: '0,04 мм' } }],
+    ['visc-up15', { fluid: { viscosity: { model: 'filonov-reynolds', nu0: 11.5e-6, T0: 293.15, u: 0.03 } } }],
+    ['visc-down15', { fluid: { viscosity: { model: 'filonov-reynolds', nu0: 8.5e-6, T0: 293.15, u: 0.03 } } }],
     ['drift', { sensors: [{ id: 'p_km25', drift: 30 }] }],
   ];
   const out: Scenario[] = [];

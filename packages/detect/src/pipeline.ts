@@ -463,7 +463,9 @@ export class DetectionPipeline implements Detector {
       result.location = this.location.x;
       result.locationInterval = this.location.interval;
     }
-    const rate = out.leakRate ?? this.location?.rate ?? (Number.isFinite(this.flowImbalance) ? Math.max(0, this.flowImbalance) : undefined);
+    // баланс расходов осмыслен, когда волна от утечки дошла до обоих концов (≈ один пробег)
+    const flowsSettled = s.t - this.alarmStart >= this.ctx.config.geometry.length / this.sc.waveSpeed;
+    const rate = out.leakRate ?? this.location?.rate ?? (flowsSettled && Number.isFinite(this.flowImbalance) ? Math.max(0, this.flowImbalance) : undefined);
     if (this.alarmed && rate !== undefined) result.leakRate = rate;
     if (this.alarmed && this.onset !== undefined) result.onsetTime = this.onset;
     const contrib = this.contributions(s, out);

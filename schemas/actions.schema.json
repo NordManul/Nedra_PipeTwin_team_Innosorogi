@@ -35,7 +35,7 @@
             }
           },
           "severity": { "enum": ["info", "warning", "critical"] },
-          "text": { "type": "string", "description": "Шаблон: {x_km}, {x_err_km}, {rate_m3h}, {frac_pct}, {sensor}, {confidence_pct}" }
+          "text": { "type": "string", "description": "Шаблон: {place}, {x_km}, {x_err_km}, {rate_m3h}, {frac_pct}, {sensor}, {confidence_pct}" }
         }
       }
     }

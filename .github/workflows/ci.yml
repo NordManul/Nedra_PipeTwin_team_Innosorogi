@@ -1,0 +1,50 @@
+# Проверки на каждый коммит (WP-C8): типы, граница честности, тесты TS и Python, быстрый стенд, сборка.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  typescript:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Типы всех пакетов
+        run: npm run typecheck
+      - name: Граница честности (детектор не видит plant)
+        run: node scripts/check-boundaries.mjs
+      - name: Тесты T-A, T-B, T-C (vitest)
+        run: npm test
+      - name: Быстрый стенд (< 3 мин) и выбор стратегии
+        run: |
+          pip install -r python/requirements.txt
+          npm run bench -- --quick --workers 2
+          python3 python/analysis/select_strategy.py --out results/strategy.ci.json --no-report
+      - name: Сборка интерфейса
+        run: npm run build
+
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: python/requirements.txt
+      - run: npm ci
+      - run: pip install -r python/requirements.txt
+      - name: Эталон SciPy, сверка с TS (T-A19), селектор (T-B11, T-B12), API
+        run: python -m pytest -q
