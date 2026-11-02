@@ -40,13 +40,14 @@ export class TransientTwin implements TwinModel {
     this.model = new PipeModel(cfg);
     this.solver = new MocSolver(this.model);
     const e = findEndSensors(cfg);
-    this.inlet = e.pIn ? { kind: 'p', input: new BoundaryInput(e.pIn) } : e.qIn ? { kind: 'q', input: new BoundaryInput(e.qIn) } : null;
-    this.outlet = e.pOut ? { kind: 'p', input: new BoundaryInput(e.pOut) } : e.qOut ? { kind: 'q', input: new BoundaryInput(e.qOut) } : null;
+    const tf = cfg.twin.inputFilterSec ?? 0;
+    this.inlet = e.pIn ? { kind: 'p', input: new BoundaryInput(e.pIn, tf) } : e.qIn ? { kind: 'q', input: new BoundaryInput(e.qIn, tf) } : null;
+    this.outlet = e.pOut ? { kind: 'p', input: new BoundaryInput(e.pOut, tf) } : e.qOut ? { kind: 'q', input: new BoundaryInput(e.qOut, tf) } : null;
     this.tin = new InletTemperature(cfg, e.TIn);
     this.prev = null;
     this.init = null;
     const inputs = [this.inlet, this.outlet].filter((x): x is EndInput => !!x).map((x) => cfg.sensors.find((s) => s.id === x.input.id)!);
-    this.lag = new PredictionLag(cfg.sensors, inputs);
+    this.lag = new PredictionLag(cfg.sensors, inputs, cfg.twin.inputFilterSec ?? 0);
   }
 
   get waveSpeed(): number {

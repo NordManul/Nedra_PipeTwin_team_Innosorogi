@@ -69,8 +69,13 @@ export function steadyFromEnd(model: PipeModel, end: 'inlet' | 'outlet', p: numb
 export class BoundaryInput {
   private hist: number[] = [];
   private last: number | undefined;
+  private lastT = NaN;
 
-  constructor(private readonly spec: SensorSpec) {}
+  /**
+   * filterSec > 0 — фильтр первого порядка на замере: шум граничного датчика меньше расходится
+   * волнами в прогнозы, ценой запаздывания прогноза на filterSec (config.twin.inputFilterSec).
+   */
+  constructor(private readonly spec: SensorSpec, private readonly filterSec = 0) {}
 
   get id(): SensorId {
     return this.spec.id;
@@ -87,7 +92,9 @@ export class BoundaryInput {
       }
       this.hist.push(v);
       if (this.hist.length > 5) this.hist.shift();
-      this.last = val;
+      const dt = frame.t - this.lastT;
+      this.lastT = frame.t;
+      this.last = this.filterSec > 0 && this.last !== undefined && dt > 0 ? this.last + (val - this.last) * (1 - Math.exp(-dt / this.filterSec)) : val;
     }
     return this.last;
   }
@@ -121,8 +128,9 @@ export class PredictionLag {
   private readonly state = new Map<SensorId, number>();
   private lastT = NaN;
 
-  constructor(sensors: SensorSpec[], inputs: SensorSpec[]) {
-    const inLag = inputs.length ? inputs.reduce((a, s) => a + s.lagSec, 0) / inputs.length : 0;
+  /** extraInputLag — дополнительное запаздывание входов (фильтр граничных замеров), с. */
+  constructor(sensors: SensorSpec[], inputs: SensorSpec[], extraInputLag = 0) {
+    const inLag = (inputs.length ? inputs.reduce((a, s) => a + s.lagSec, 0) / inputs.length : 0) + extraInputLag;
     for (const s of sensors) this.tau.set(s.id, Math.max(0, s.lagSec - inLag));
   }
 

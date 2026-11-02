@@ -247,6 +247,11 @@ export interface TwinSettings {
   model?: 'steady' | 'transient';
   /** Для steady-модели: какие замеры брать как граничные условия. */
   boundaryMode: TwinBoundaryMode;
+  /**
+   * Постоянная времени фильтра первого порядка на граничных замерах нестационарного twin, с.
+   * 0 или нет — без фильтра. Меньше шума в прогнозах, но прогноз запаздывает на эту величину.
+   */
+  inputFilterSec?: number;
   /** Явный выбор граничных датчиков; без них — датчики нужного рода с x = 0 / x = length. */
   inletPressureSensor?: SensorId;
   outletPressureSensor?: SensorId;

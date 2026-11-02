@@ -87,6 +87,7 @@
       "properties": {
         "model": { "enum": ["steady", "transient"] },
         "boundaryMode": { "enum": ["auto", "p_in+q_in", "p_in+p_out", "p_out+q_out"] },
+        "inputFilterSec": { "type": "number", "minimum": 0, "description": "Фильтр граничных замеров нестационарного twin, с" },
         "inletPressureSensor": { "$ref": "#/$defs/sensorId" },
         "outletPressureSensor": { "$ref": "#/$defs/sensorId" },
         "flowSensor": { "$ref": "#/$defs/sensorId" },
