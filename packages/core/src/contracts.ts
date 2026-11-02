@@ -252,6 +252,11 @@ export interface TwinSettings {
    * 0 или нет — без фильтра. Меньше шума в прогнозах, но прогноз запаздывает на эту величину.
    */
   inputFilterSec?: number;
+  /**
+   * Вид фильтра граничных замеров (при inputFilterSec > 0): 'ema' — первого порядка;
+   * 'kalman' — оценка уровня со сбросом при манёвре (рампа насоса, задвижки), без запаздывания на переходах.
+   */
+  inputFilter?: 'ema' | 'kalman';
   /** Явный выбор граничных датчиков; без них — датчики нужного рода с x = 0 / x = length. */
   inletPressureSensor?: SensorId;
   outletPressureSensor?: SensorId;

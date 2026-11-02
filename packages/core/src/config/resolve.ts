@@ -498,6 +498,7 @@ export function resolveConfig(inputRaw: unknown, opts: ResolveOptions = {}): Res
     model: twinIn.model ?? (hasEndSensor(sensors, 0) && hasEndSensor(sensors, length) ? 'transient' : 'steady'),
     boundaryMode: twinIn.boundaryMode ?? 'auto',
     ...(twinIn.inputFilterSec !== undefined ? { inputFilterSec: twinIn.inputFilterSec } : {}),
+    ...(twinIn.inputFilter !== undefined ? { inputFilter: twinIn.inputFilter } : {}),
   };
   for (const k of ['inletPressureSensor', 'outletPressureSensor', 'flowSensor', 'inletTempSensor'] as const) {
     const id = twinIn[k];
