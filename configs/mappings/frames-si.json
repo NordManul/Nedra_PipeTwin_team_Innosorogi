@@ -1,0 +1,18 @@
+{
+  "$schema": "../../schemas/mapping.schema.json",
+  "schemaVersion": 1,
+  "name": "frames-si",
+  "description": "Нормализованный CSV кадров (docs/contracts.md, п. 5): t в секундах, значения в СИ, давление абсолютное. Колонки — датчики конфига pipeline.default.json; для другого конфига скопируйте профиль и поменяйте список.",
+  "file": { "delimiter": ",", "decimal": ".", "encoding": "utf-8", "headerRow": 0 },
+  "time": { "column": "t", "format": "seconds" },
+  "columns": [
+    { "source": "p_in", "sensorId": "p_in", "kind": "p", "unit": "Па", "pressureReference": "absolute", "x": 0 },
+    { "source": "q_in", "sensorId": "q_in", "kind": "q", "unit": "м3/с", "x": 0 },
+    { "source": "T_in", "sensorId": "T_in", "kind": "T", "unit": "K", "x": 0 },
+    { "source": "p_km10", "sensorId": "p_km10", "kind": "p", "unit": "Па", "pressureReference": "absolute", "x": 10000 },
+    { "source": "p_km25", "sensorId": "p_km25", "kind": "p", "unit": "Па", "pressureReference": "absolute", "x": 25000 },
+    { "source": "p_out", "sensorId": "p_out", "kind": "p", "unit": "Па", "pressureReference": "absolute", "x": 50000 },
+    { "source": "q_out", "sensorId": "q_out", "kind": "q", "unit": "м3/с", "x": 50000 },
+    { "source": "T_out", "sensorId": "T_out", "kind": "T", "unit": "K", "x": 50000 }
+  ]
+}

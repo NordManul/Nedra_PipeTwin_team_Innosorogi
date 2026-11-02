@@ -1,0 +1,32 @@
+[
+  {
+    "strategy": "cusum",
+    "params": {
+      "drift": 0.5,
+      "h": 53.88
+    },
+    "signatureFilter": true,
+    "warmupSec": 60,
+    "localization": "hgl"
+  },
+  {
+    "strategy": "cusum",
+    "params": {
+      "drift": 0.5,
+      "h": 53.88
+    },
+    "signatureFilter": true,
+    "warmupSec": 60,
+    "localization": "lsq"
+  },
+  {
+    "strategy": "cusum",
+    "params": {
+      "drift": 0.5,
+      "h": 53.88
+    },
+    "signatureFilter": true,
+    "warmupSec": 60,
+    "localization": "wave-timing"
+  }
+]

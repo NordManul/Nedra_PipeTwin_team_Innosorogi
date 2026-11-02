@@ -9,5 +9,9 @@
   "exports": {
     ".": "./src/index.ts"
   },
-  "dependencies": { "@pipetwin/core": "*", "@pipetwin/detect": "*", "@pipetwin/io": "*" }
+  "dependencies": {
+    "@pipetwin/core": "*",
+    "@pipetwin/detect": "*",
+    "@pipetwin/io": "*"
+  }
 }

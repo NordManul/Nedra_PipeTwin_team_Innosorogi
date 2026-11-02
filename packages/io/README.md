@@ -1,22 +1,32 @@
 # @pipetwin/io — импорт чужих файлов
 
-**Владелец:** C. Подробно — ТЗ, раздел 12, WP-C1 и WP-C2.
+Один код разбора для браузера (мастер в интерфейсе, отдельный воркер) и Node (CLI, стенд). ТЗ, WP-C1…C3.
 
-Один код разбора для браузера (мастер маппинга) и Node (CLI импорта, стенд B).
+```bash
+npm run import -- data/scada.csv --mapping example-scada --out results/frames.csv
+npm run import -- data/unknown.xlsx --config configs/pipeline.default.json      # черновик профиля + вопросы
+```
 
-## Контракты
+## Что определяется само
 
-- Пишет: `NormalizedTable`, кадры `SensorFrame` и нормализованный CSV ([contracts.md, п. 5](../../docs/contracts.md#5-sensorframe--показания-датчиков)), `PipelineConfigInput` из паспорта.
-- Читает: `MappingProfile` (`configs/mappings/*.json`), `LeakLabelsFile`.
-- Реализует: `ReplaySource`, `StreamSource` (`DataSource`, п. 8).
+- кодировка (UTF-8 / cp1251), разделитель (`,` `;` TAB пробел), десятичная запятая, кавычки;
+- строка заголовка под служебными строками, строка единиц под заголовком, лист Excel с данными, объединённые ячейки;
+- Excel — только `.xlsx`/`.xlsm`, своим читателем (`src/xlsx.ts`: zip + XML, распаковка `fflate`; без SheetJS из npm, у которого известные уязвимости при чтении чужих файлов). Старые `.xls` и `.ods` отклоняются с подсказкой пересохранить в `.xlsx` или CSV;
+- время: ISO (с поясом и без), `dd.mm.yyyy HH:MM:SS(.fff)`, дата и время в разных колонках, unix с/мс, дата Excel, секунды; пояс — IANA (`Europe/Moscow`);
+- род величины по имени (рус/англ, тэги КИП PT/PI, FT/FI, TT/TI), единица из заголовка (`P_вх, МПа`, `[bar]`, `(°C)`) или по величине (неоднозначное — вопросом), положение из имени (`км 12,5`, `KP12`, `вход`/`out`).
 
-Перевод единиц и избыточного давления в абсолютное делается **здесь**, на границе.
+## API
 
-## Модули (план)
+| Функция | Что |
+| --- | --- |
+| `importFile(bytes, name, { profile? })` | Файл → `NormalizedTable` + угаданные колонки |
+| `draftMapping(name, guesses, timeColumns, cfg?)` | Черновик `MappingProfile` и вопросы; с конфигом — привязка к датчикам по роду и месту |
+| `applyMapping(table, profile, ctx)` | Таблица → кадры `SensorFrame` в СИ (избыточное давление → абсолютное) |
+| `framesFromFile(...)` | Всё вместе |
+| `ReplaySource` | Запись как `DataSource` (перемотка, разметка утечек) |
+| `writeFramesCsv` / `readFramesCsv` | Нормализованный CSV кадров ([contracts.md, п. 5](../../docs/contracts.md#5-sensorframe--показания-датчиков)) |
+| `parsePassportText` / `parsePassportRows` | Паспорт трубы → `PipelineConfigInput` («530×8 мм» → D и стенка) |
 
-| Модуль | WP | Что |
-| --- | --- | --- |
-| `src/parse/` | C1 | CSV/TSV/TXT, Excel, JSON; кодировки, десятичная запятая, форматы времени; потоковый разбор |
-| `src/mapping/` | C2 | Автоугадывание колонок по именам и тэгам КИП, единицы из заголовка, применение профиля |
-| `src/passport/` | C3 | Паспорт «ключ — значение» и разбор текста → `PipelineConfigInput` |
-| `src/sources/` | C1, C5 | `ReplaySource`, `StreamSource` |
+## Тесты
+
+`test/import.test.ts` — T-C01…T-C09 на образцах `fixtures/import/` (генератор `scripts/make-import-fixtures.ts`).

@@ -9,10 +9,22 @@
     "apps/*"
   ],
   "scripts": {
-    "typecheck": "tsc -p packages/core/tsconfig.json --noEmit"
+    "dev": "npm run dev -w @pipetwin/web",
+    "build": "npm run build -w @pipetwin/web",
+    "test": "vitest run",
+    "typecheck": "tsc -p packages/core --noEmit && tsc -p packages/detect --noEmit && tsc -p packages/io --noEmit && tsc -p packages/bench --noEmit && tsc -p apps/web --noEmit",
+    "import": "tsx packages/io/src/cli.ts",
+    "fixtures": "tsx scripts/make-import-fixtures.ts",
+    "bench": "tsx packages/bench/src/cli.ts",
+    "select": "python3 python/analysis/select_strategy.py",
+    "check:boundaries": "node scripts/check-boundaries.mjs",
+    "perf": "tsx scripts/perf.ts"
   },
   "devDependencies": {
-    "typescript": "^5.6.0"
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.9"
   },
   "engines": {
     "node": ">=20"
