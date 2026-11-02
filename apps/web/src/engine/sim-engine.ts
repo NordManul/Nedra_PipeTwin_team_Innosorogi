@@ -89,6 +89,13 @@ export class SimEngine {
     this.note('утечки устранены');
   }
 
+  removeLeak(id: string): void {
+    if (!this.sim) return;
+    this.sim.removeLeak(id);
+    this.leaks = this.leaks.filter((l) => l.id !== id);
+    this.note(`утечка ${id} устранена`);
+  }
+
   control(a: ControlAction): void {
     if (!this.sim) return;
     this.record({ t: this.sim.plant.t, ...a } as ScenarioEvent);

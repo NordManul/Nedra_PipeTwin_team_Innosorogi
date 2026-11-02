@@ -51,6 +51,9 @@ self.onmessage = (ev: MessageEvent<SimCommand>) => {
       case 'clearLeaks':
         engine.clearLeaks();
         break;
+      case 'removeLeak':
+        engine.removeLeak(c.id);
+        break;
       case 'control':
         engine.control(c.action);
         break;

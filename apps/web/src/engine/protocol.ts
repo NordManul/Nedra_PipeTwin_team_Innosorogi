@@ -34,6 +34,7 @@ export type SimCommand =
   /** Утечка в случайном месте со скрытой задержкой (слепой режим). */
   | { type: 'blindLeak'; sizePct: number; minDelaySec: number; maxDelaySec: number }
   | { type: 'clearLeaks' }
+  | { type: 'removeLeak'; id: string }
   | { type: 'control'; action: ControlAction }
   | { type: 'speed'; value: number }
   | { type: 'pause'; value: boolean }

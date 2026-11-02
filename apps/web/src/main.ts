@@ -445,6 +445,7 @@ class App {
     );
 
     // утечка
+    let kmInput!: HTMLInputElement;
     const size = h('input', { id: 'leak-size', type: 'range', min: 0.2, max: 20, step: 0.1, value: 2 });
     const sizeLbl = h('span', { class: 'mono' }, '2,0 %');
     size.addEventListener('input', () => (sizeLbl.textContent = `${fmt(Number(size.value), 1)} %`));
@@ -459,12 +460,20 @@ class App {
         h(
           'div',
           { class: 'row' },
+          h('span', { class: 'small' }, 'Место, км'),
+          (kmInput = h('input', { type: 'number', min: 0, max: cfg.geometry.length / 1000, step: 0.1, value: (cfg.geometry.length / 2000).toFixed(1), style: 'width:80px' })),
+          btn('Поставить', () => this.leakAt(Math.min(cfg.geometry.length, Math.max(0, Number(kmInput.value) * 1000))), 'small'),
+        ),
+        h(
+          'div',
+          { class: 'row' },
           btn('В середину', () => this.leakAt(cfg.geometry.length / 2)),
           btn('Скрытая', () => {
             this.sendSim({ type: 'blindLeak', sizePct: Number(size.value), minDelaySec: 5, maxDelaySec: 30 });
           }),
           btn('Устранить', () => this.sendSim({ type: 'clearLeaks' })),
         ),
+        h('div', { id: 'leak-list' }),
         h('div', { class: 'row' }, h('span', { class: 'small muted' }, 'Пресеты:'), btn('1%', () => { size.value = '1'; this.leakAt(cfg.geometry.length * 0.37); }, 'small'), btn('5%', () => { size.value = '5'; this.leakAt(cfg.geometry.length * 0.62); }, 'small'), btn('10%', () => { size.value = '10'; this.leakAt(cfg.geometry.length * 0.8); }, 'small')),
       ),
     );
@@ -546,6 +555,7 @@ class App {
       this.panelsAt = now;
       this.renderTimeline();
       this.renderSensors();
+      this.renderLeakList();
     }
     const visibleLeaks = this.leaks.map((l) => ({ ...l, hidden: l.hidden && !this.detectedAfter(l.tStart) }));
     this.schematic.update({
@@ -566,6 +576,27 @@ class App {
       h('pre', { class: 'log' }, this.detectorLog.slice(0, 5).join('\n')),
       h('pre', { class: 'log' }, this.journal.slice(0, 30).join('\n')),
     );
+  }
+
+  /** Активные утечки (видимые) с кнопкой «убрать» у каждой. */
+  private renderLeakList(): void {
+    const el = document.getElementById('leak-list');
+    if (!el) return;
+    const visible = this.leaks.filter((l) => !l.hidden || this.detectedAfter(l.tStart) !== null);
+    const key = visible.map((l) => `${l.id}:${l.rate?.toFixed(5)}`).join('|');
+    if (el.dataset.key === key) return;
+    el.dataset.key = key;
+    clear(el);
+    for (const l of visible) {
+      el.append(
+        h(
+          'div',
+          { class: 'row small' },
+          h('span', { class: 'mono' }, `км ${fmt(km(l.x), 1)} · ${fmt(l.sizePct, 1)}%${l.rate !== undefined ? ` · ${fmt(l.rate * 3600, 1)} м³/ч` : ''}`),
+          h('button', { class: 'small', onclick: () => this.sendSim({ type: 'removeLeak', id: l.id }) }, 'убрать'),
+        ),
+      );
+    }
   }
 
   /** Шкала записи с перемоткой (только replay). */

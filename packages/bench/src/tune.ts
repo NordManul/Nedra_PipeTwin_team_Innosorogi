@@ -13,7 +13,7 @@ import { strategyId } from './candidates';
 import { readJsonFromRoot } from './runner';
 
 /** Масштабы порога относительно значения по умолчанию, которые перебираются. */
-export const TUNE_SCALES = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.15, 1.3, 1.5, 1.75, 2, 2.5, 3, 4];
+export const TUNE_SCALES = [0.5, 0.65, 0.8, 0.9, 1, 1.15, 1.35, 1.7, 2.2, 3, 4];
 /** Запас над найденным масштабом. */
 export const TUNE_SAFETY = 1.05;
 
@@ -40,7 +40,10 @@ export function tuneScenario(sc: Scenario, strategies: StrategySpec[]): TuneJobR
   for (const spec of strategies) {
     const s = { ...spec, warmupSec: warmup };
     if (!createDetector(s).check(ctx).ok) continue;
-    alarms[strategyId(spec)] = TUNE_SCALES.map((k) => countAlarms(scaleThreshold(s, k), stream, ctx));
+    // число тревог не растёт с порогом: после первого масштаба без тревог остальные — нули
+    const counts: number[] = [];
+    for (const k of TUNE_SCALES) counts.push(counts.at(-1) === 0 ? 0 : countAlarms(scaleThreshold(s, k), stream, ctx));
+    alarms[strategyId(spec)] = counts;
   }
   return { scenario_id: sc.id, alarms, observedSec: Math.max(0, sc.durationSec - warmup) };
 }
