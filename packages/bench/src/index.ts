@@ -5,4 +5,4 @@ export { defaultCandidates, strategyId } from './candidates';
 export { computeMetrics, formatTable, toCsv, type StrategyMetrics } from './metrics';
 export { overlayLeaks } from './overlay';
 export { runJobs, jobKey, BENCH_VERSION, type Job, type JobResult } from './pool';
-export { tuneScenario, BLOCK_SEC } from './tune';
+export { tuneScenario, pickScale, TUNE_SCALES, TUNE_SAFETY } from './tune';

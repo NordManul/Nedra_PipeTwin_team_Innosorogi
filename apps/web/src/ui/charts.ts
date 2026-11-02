@@ -18,9 +18,48 @@ interface ChartDef {
   series: uPlot.Series[];
 }
 
+export interface Marker {
+  t: number;
+  color: string;
+  label: string;
+}
+
+/** Вертикальные метки событий (начало утечки, тревога) на всех графиках. */
+function markersPlugin(get: () => Marker[]): uPlot.Plugin {
+  return {
+    hooks: {
+      draw: (u) => {
+        const ctx = u.ctx;
+        const { top, height } = u.bbox;
+        for (const m of get()) {
+          const x = u.valToPos(m.t, 'x', true);
+          if (x < u.bbox.left || x > u.bbox.left + u.bbox.width) continue;
+          ctx.save();
+          ctx.strokeStyle = m.color;
+          ctx.lineWidth = 2 * devicePixelRatio;
+          ctx.setLineDash([6 * devicePixelRatio, 4 * devicePixelRatio]);
+          ctx.beginPath();
+          ctx.moveTo(x, top);
+          ctx.lineTo(x, top + height);
+          ctx.stroke();
+          ctx.fillStyle = m.color;
+          ctx.font = `${11 * devicePixelRatio}px system-ui`;
+          ctx.fillText(m.label, x + 4 * devicePixelRatio, top + 12 * devicePixelRatio);
+          ctx.restore();
+        }
+      },
+    },
+  };
+}
+
 export class Charts {
   private plots: Array<{ def: ChartDef; plot: uPlot; host: HTMLElement }> = [];
+  private markers: Marker[] = [];
   windowSec = 60;
+
+  setMarkers(m: Marker[]): void {
+    this.markers = m;
+  }
 
   constructor(private readonly host: HTMLElement) {
     new ResizeObserver(() => this.resize()).observe(host);
@@ -84,6 +123,7 @@ export class Charts {
           { size: 56, stroke: 'currentColor', grid: { stroke: 'rgba(128,128,128,.15)' } },
         ],
         series: [{ label: 't' }, ...def.series],
+        plugins: [markersPlugin(() => this.markers)],
       };
       const empty = [[], ...def.keys.map(() => [])] as unknown as uPlot.AlignedData;
       this.plots.push({ def, plot: new uPlot(opts, empty, holder), host: holder });

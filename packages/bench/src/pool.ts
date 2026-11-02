@@ -12,7 +12,7 @@ import { ROOT, type ScenarioResult } from './runner';
 import type { TuneJobResult } from './tune';
 
 /** Меняйте при изменении логики стенда или детекторов, чтобы кэш не выдавал старое. */
-export const BENCH_VERSION = 5;
+export const BENCH_VERSION = 7;
 
 export type Job =
   | { kind: 'run'; key: string; scenario: Scenario; strategies: StrategySpec[]; maxTtdSec?: number }

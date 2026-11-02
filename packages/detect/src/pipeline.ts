@@ -37,6 +37,12 @@ export interface PipelineOptions {
    */
   guardFactor?: number;
   guardTransits?: number;
+  /**
+   * Сигнатура не нашла признаков утечки («неизвестно»): тревога, только если превышение держится
+   * столько секунд подряд (по умолчанию 2). Отсекает выбросы шума, почти не задерживая утечки:
+   * у них сигнатура почти всегда «утечка».
+   */
+  confirmSec?: number;
   /** Минимальная длительность тревоги, после которой она может сняться, с. */
   holdSec?: number;
   /** Не выдавать тревог (для autotune: нужна только статистика). */
@@ -92,6 +98,7 @@ export class DetectionPipeline implements Detector {
   private eventClass: EventClass | undefined;
   private eventUntil = -Infinity;
   private holdUntil = NaN;
+  private unknownSince = NaN;
   private faultHoldSec = 5;
   private location: LocationEstimate | null = null;
   private waveEst: LocationEstimate | null = null;
@@ -132,6 +139,7 @@ export class DetectionPipeline implements Detector {
     this.guardUntil = -Infinity;
     this.lastRegimeT = -Infinity;
     this.faultSince.clear();
+    this.unknownSince = NaN;
     this.lsq = new LsqLocator();
     this.rawHist.clear();
     this.zHist.clear();
@@ -426,15 +434,21 @@ export class DetectionPipeline implements Detector {
         this.stat.rearm();
         this.prep.rebaseline(s.t);
         this.holdUntil = NaN;
+      } else if (sig.cls === 'unknown' && (Number.isNaN(this.unknownSince) || s.t - this.unknownSince < (this.opts.confirmSec ?? 2))) {
+        // нет признаков утечки — тревога только если превышение держится confirmSec подряд
+        if (Number.isNaN(this.unknownSince)) this.unknownSince = s.t;
+        phase = 'suspect';
       } else {
         this.alarmed = true;
         this.alarmStart = s.t;
         this.onset = onset;
         this.holdUntil = NaN;
+        this.unknownSince = NaN;
         this.setEvent(sig.cls === 'unknown' ? 'unknown' : 'leak', Infinity);
       }
     } else {
       this.holdUntil = NaN;
+      this.unknownSince = NaN;
     }
 
     if (this.alarmed) {

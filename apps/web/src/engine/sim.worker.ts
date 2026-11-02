@@ -60,6 +60,9 @@ self.onmessage = (ev: MessageEvent<SimCommand>) => {
       case 'pause':
         engine.paused = c.value;
         break;
+      case 'seek':
+        engine.seek(c.t);
+        break;
     }
   } catch (e) {
     post({ type: 'error', message: e instanceof Error ? e.message : String(e) });

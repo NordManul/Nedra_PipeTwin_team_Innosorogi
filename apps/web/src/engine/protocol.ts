@@ -36,7 +36,9 @@ export type SimCommand =
   | { type: 'clearLeaks' }
   | { type: 'control'; action: ControlAction }
   | { type: 'speed'; value: number }
-  | { type: 'pause'; value: boolean };
+  | { type: 'pause'; value: boolean }
+  /** Перемотка записи (только replay). */
+  | { type: 'seek'; t: number };
 
 /** Утечка, как её видит интерфейс (правда — только для секундомера и маркера). */
 export interface LeakInfo {
@@ -62,6 +64,8 @@ export type SimMessage =
       /** Новые события сессии во времени plant — для экспорта сценария (WP-C6). */
       events: ScenarioEvent[];
       done: boolean;
+      /** Длительность записи (replay), с. */
+      duration?: number;
     }
   | { type: 'error'; message: string };
 

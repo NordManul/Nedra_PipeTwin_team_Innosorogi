@@ -29,7 +29,7 @@ import type { DetectCommand, DetectMessage, LeakInfo, SimCommand, SimMessage } f
 import { CardPanel } from './ui/card';
 import { Charts } from './ui/charts';
 import { $, clear, download, h } from './ui/dom';
-import { display, fmt, km } from './ui/format';
+import { display, fmt, km, UNIT } from './ui/format';
 import { Importer } from './ui/importer';
 import { ParamsPanel } from './ui/params';
 import { Schematic } from './ui/schematic';
@@ -73,6 +73,11 @@ class App {
   private inputs: string[] = [];
   private checks: Record<string, { ok: boolean; reasons: string[] }> = {};
   private chartsBuilt = false;
+  private replayDuration = 0;
+  private lastFrame: SensorFrame | null = null;
+  private presenting = false;
+  /** Таблицы и журнал перестраиваются реже графиков (4 раза/с) — DOM дороже canvas. */
+  private panelsAt = 0;
 
   private schematic!: Schematic;
   private charts!: Charts;
@@ -121,11 +126,10 @@ class App {
     this.detectorLog = [];
     this.cards.reset();
     this.sim = new Worker(new URL('./engine/sim.worker.ts', import.meta.url), { type: 'module' });
-    this.det = new Worker(new URL('./engine/detect.worker.ts', import.meta.url), { type: 'module' });
     this.sim.onmessage = (e: MessageEvent<SimMessage>) => this.onSim(e.data);
-    this.det.onmessage = (e: MessageEvent<DetectMessage>) => this.onDetect(e.data);
     const cfg = this.resolved.config;
-    this.sendDet({ type: 'init', config: cfg, strategy: this.strategy, rules: this.rules });
+    this.replayDuration = 0;
+    this.startDetector();
     if (this.mode === 'sim') {
       const truth = this.modelError ? resolveConfig(mergeConfigInput(this.input, TRUTH_OVERRIDES)).config : cfg;
       this.sendSim({ type: 'init', config: truth, seed: this.seed, speed: this.speed });
@@ -134,6 +138,34 @@ class App {
     this.params.render(this.input, this.resolved.params, this.resolved.warnings, this.resolved.calibrationCandidates);
     this.log(`конфиг «${cfg.meta.name}»: ${(cfg.geometry.length / 1000).toFixed(1)} км, Ø${(cfg.geometry.diameter * 1000).toFixed(0)} мм, ${cfg.sensors.length} датчиков`);
     this.renderControls();
+  }
+
+  /** Новый воркер детектора: он начинает с прогрева (оценка шума по первой минуте). */
+  private startDetector(): void {
+    this.det?.terminate();
+    this.det = new Worker(new URL('./engine/detect.worker.ts', import.meta.url), { type: 'module' });
+    this.det.onmessage = (e: MessageEvent<DetectMessage>) => this.onDetect(e.data);
+    this.pending = [];
+    this.alarmTimes = [];
+    this.lastAlarm = false;
+    this.outs = null;
+    this.sendDet({ type: 'init', config: this.resolved.config, strategy: this.strategy, rules: this.rules });
+  }
+
+  /** Перемотка записи: модельное время прыгает, поэтому детектор перезапускается с прогрева. */
+  private seek(t: number): void {
+    this.sendSim({ type: 'seek', t });
+    this.store.clear();
+    this.cards.reset();
+    this.startDetector();
+    this.log(`перемотка записи на ${fmt(t, 0)} с — детектор начинает с прогрева`);
+  }
+
+  private togglePresentation(): void {
+    this.presenting = !this.presenting;
+    document.body.classList.toggle('present', this.presenting);
+    this.charts.resize();
+    this.schematic.draw();
   }
 
   private sendSim(c: SimCommand): void {
@@ -153,6 +185,7 @@ class App {
     }
     this.simT = m.t;
     this.leaks = m.leaks;
+    if (m.duration !== undefined) this.replayDuration = m.duration;
     if (m.profile) this.plantProfile = m.profile;
     for (const l of m.log) this.log(l);
     this.sessionEvents.push(...m.events);
@@ -161,6 +194,7 @@ class App {
       this.pending.push(...m.frames);
       this.sendDet({ type: 'frames', frames: m.frames });
       const f = m.frames.at(-1)!;
+      this.lastFrame = f;
       if (f.t - this.lastDetLogT >= 1) {
         this.lastDetLogT = f.t;
         const vals = Object.entries(f.values)
@@ -324,17 +358,30 @@ class App {
         'header',
         {},
         h('div', { class: 'brand' }, h('strong', {}, 'PipeTwin'), h('span', { class: 'muted' }, ' · цифровой двойник участка трубопровода')),
-        h('div', { id: 'status', class: 'status' }),
+        h(
+          'div',
+          { class: 'row' },
+          h('div', { id: 'status', class: 'status' }),
+          h('button', { class: 'small', title: 'Крупный экран для проектора (клавиша P)', onclick: () => this.togglePresentation() }, 'Презентация'),
+        ),
       ),
       h(
         'main',
         {},
         h('aside', { id: 'controls', class: 'col-left' }),
-        h('section', { class: 'col-center' }, h('div', { id: 'stopwatch', class: 'stopwatch' }), h('div', { id: 'schematic', class: 'panel' }), h('div', { id: 'charts', class: 'charts' })),
+        h(
+          'section',
+          { class: 'col-center' },
+          h('div', { id: 'stopwatch', class: 'stopwatch' }),
+          h('div', { id: 'timeline', class: 'panel timeline', hidden: true }),
+          h('div', { id: 'schematic', class: 'panel' }),
+          h('div', { id: 'charts', class: 'charts' }),
+        ),
         h(
           'aside',
           { class: 'col-right' },
           h('div', { id: 'card', class: 'panel' }),
+          h('div', { id: 'sensors', class: 'panel' }),
           h('div', { id: 'journal', class: 'panel' }),
           h('div', { id: 'params', class: 'panel' }),
         ),
@@ -342,6 +389,9 @@ class App {
       h('div', { id: 'toasts' }),
     );
     this.schematic = new Schematic($('#schematic'), (x) => this.leakAt(x));
+    document.addEventListener('keydown', (e) => {
+      if ((e.key === 'p' || e.key === 'з') && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) this.togglePresentation();
+    });
     this.charts = new Charts($('#charts'));
     this.cards = new CardPanel($('#card'), (c: EventCard) => this.log(`оператор принял карточку ${c.id}: ${c.action.text}`));
     this.params = new ParamsPanel($('#params'), {
@@ -484,7 +534,19 @@ class App {
     const cfg = this.resolved?.config;
     if (!cfg) return;
     const out = this.outs;
+    const markers = [
+      ...this.leaks.filter((l) => !l.hidden || this.detectedAfter(l.tStart) !== null).map((l) => ({ t: l.tStart, color: '#dc2626', label: 'утечка' })),
+      ...this.alarmTimes.map((t) => ({ t, color: '#f59e0b', label: 'тревога' })),
+    ];
+    this.charts.setMarkers(markers);
     this.charts.update(this.store);
+    const now = performance.now();
+    const panels = now - this.panelsAt > 250;
+    if (panels) {
+      this.panelsAt = now;
+      this.renderTimeline();
+      this.renderSensors();
+    }
     const visibleLeaks = this.leaks.map((l) => ({ ...l, hidden: l.hidden && !this.detectedAfter(l.tStart) }));
     this.schematic.update({
       profile: this.mode === 'sim' ? this.plantProfile : this.twinProfile,
@@ -495,6 +557,7 @@ class App {
     });
     this.renderStopwatch(visibleLeaks);
     $('#status').textContent = `${this.mode === 'sim' ? 'симуляция' : 'запись'} · t = ${fmt(this.simT, 1)} с · ×${this.speed}${this.paused ? ' · пауза' : ''} · ${out?.phase === 'warmup' ? 'прогрев (оценка шума)' : out?.alarm ? 'ТРЕВОГА' : 'норма'}`;
+    if (!panels) return;
     const j = $('#journal');
     clear(j);
     j.append(
@@ -502,6 +565,45 @@ class App {
       h('p', { class: 'small muted' }, 'Детектор работает в отдельном воркере и получает только кадры датчиков. Последние сообщения к нему:'),
       h('pre', { class: 'log' }, this.detectorLog.slice(0, 5).join('\n')),
       h('pre', { class: 'log' }, this.journal.slice(0, 30).join('\n')),
+    );
+  }
+
+  /** Шкала записи с перемоткой (только replay). */
+  private renderTimeline(): void {
+    const el = $('#timeline');
+    el.hidden = this.mode !== 'replay' || !this.replayDuration;
+    if (el.hidden) return;
+    const range = el.querySelector('input');
+    if (range && document.activeElement === range) return;
+    clear(el);
+    const r = h('input', { type: 'range', min: 0, max: this.replayDuration, step: 1, value: this.simT });
+    r.addEventListener('change', () => this.seek(Number(r.value)));
+    el.append(h('div', { class: 'row' }, h('span', { class: 'small mono' }, `${fmt(this.simT, 0)} / ${fmt(this.replayDuration, 0)} с`), r));
+  }
+
+  /** Датчики: последнее значение, нормированная невязка, состояние. */
+  private renderSensors(): void {
+    const el = $('#sensors');
+    clear(el);
+    const cfg = this.resolved.config;
+    const f = this.lastFrame;
+    const z = this.outs?.z ?? {};
+    const bad = new Set(this.outs?.unhealthySensors ?? []);
+    const rows = cfg.sensors.map((s) => {
+      const v = f?.values[s.id];
+      const role = this.inputs.includes(s.id) ? 'граница twin' : z[s.id] !== undefined ? `z = ${fmt(z[s.id], 1)}` : '';
+      return h(
+        'tr',
+        { class: bad.has(s.id) ? 'bad' : '' },
+        h('td', {}, s.id),
+        h('td', { class: 'mono' }, fmt(km(s.x), 1)),
+        h('td', { class: 'mono' }, v !== undefined ? `${fmt(display(s.kind, v, cfg.ambientPressure), s.kind === 'p' ? 3 : 1)} ${UNIT[s.kind]}` : '—'),
+        h('td', { class: 'small' }, bad.has(s.id) ? 'неисправен' : role),
+      );
+    });
+    el.append(
+      h('h3', {}, 'Датчики'),
+      h('table', { class: 'params' }, h('tr', {}, h('th', {}, 'id'), h('th', {}, 'км'), h('th', {}, 'значение'), h('th', {}, 'состояние')), ...rows),
     );
   }
 
@@ -516,7 +618,23 @@ class App {
     const raw = this.leaks.at(-1);
     if (!leak || !raw) {
       el.className = 'stopwatch idle';
-      el.append(h('div', { class: 'big' }, this.outs?.phase === 'warmup' ? 'Прогрев: оценка шума по первой минуте' : 'Утечки нет'), h('div', { class: 'small' }, 'Кликните по трубе, чтобы поставить утечку'));
+      const warm = !this.outs || this.outs.phase === 'warmup';
+      const done = Math.min(this.strategy.warmupSec, this.outs?.t ?? 0);
+      el.append(
+        h('div', { class: 'big' }, warm ? `Прогрев: ${fmt(done, 0)} из ${this.strategy.warmupSec} с` : this.outs?.alarm ? (this.mode === 'replay' ? 'Тревога по записи' : 'Тревога без поставленной утечки') : this.mode === 'replay' ? 'Норма' : 'Утечки нет'),
+        warm
+          ? h('div', { class: 'progress' }, h('div', { style: `width:${((done / this.strategy.warmupSec) * 100).toFixed(0)}%` }))
+          : '',
+        h(
+          'div',
+          { class: 'small' },
+          warm
+            ? 'Детектор оценивает шум датчиков по первой минуте; ускорьте время кнопкой ×20'
+            : this.mode === 'replay'
+              ? `Запись без разметки утечек${this.alarmTimes.length ? ` · тревоги: ${this.alarmTimes.map((t) => `${fmt(t, 1)} с`).join(', ')}` : ''}`
+              : 'Кликните по трубе, чтобы поставить утечку',
+        ),
+      );
       return;
     }
     const tA = this.detectedAfter(raw.tStart);

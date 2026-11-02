@@ -1,18 +1,34 @@
 {
- "generatedAt": "2026-11-02T14:08:02.767Z",
- "quick": false,
+ "generatedAt": "2026-11-02T14:51:29.246Z",
+ "quick": true,
  "targetFarPerDay": 1,
  "strategies": [
   {
-   "id": "threshold:windowSec=2;k=11.96",
+   "id": "threshold:windowSec=2;k=5.355",
    "base": "threshold:windowSec=2;k=8.5",
-   "scale": 1.4071112509276724,
-   "blocks": 870,
+   "scale": 0.63,
+   "alarmsByScale": {
+    "1": 0,
+    "2": 0,
+    "3": 0,
+    "4": 0,
+    "0.5": 3,
+    "0.6": 0,
+    "0.7": 0,
+    "0.8": 0,
+    "0.9": 0,
+    "1.15": 0,
+    "1.3": 0,
+    "1.5": 0,
+    "1.75": 0,
+    "2.5": 0
+   },
+   "observedHours": 0.88,
    "spec": {
     "strategy": "threshold",
     "params": {
      "windowSec": 2,
-     "k": 11.96
+     "k": 5.355
     },
     "localization": "lsq",
     "signatureFilter": true,
@@ -20,15 +36,31 @@
    }
   },
   {
-   "id": "ewma:tauSec=3;L=13.22",
+   "id": "ewma:tauSec=3;L=6.834",
    "base": "ewma:tauSec=3;L=8.5",
-   "scale": 1.555176358776476,
-   "blocks": 870,
+   "scale": 0.804,
+   "alarmsByScale": {
+    "1": 0,
+    "2": 0,
+    "3": 0,
+    "4": 0,
+    "0.5": 5,
+    "0.6": 1,
+    "0.7": 0,
+    "0.8": 0,
+    "0.9": 0,
+    "1.15": 0,
+    "1.3": 0,
+    "1.5": 0,
+    "1.75": 0,
+    "2.5": 0
+   },
+   "observedHours": 0.88,
    "spec": {
     "strategy": "ewma",
     "params": {
      "tauSec": 3,
-     "L": 13.22
+     "L": 6.834
     },
     "localization": "lsq",
     "signatureFilter": true,
@@ -36,15 +68,31 @@
    }
   },
   {
-   "id": "cusum:drift=0.5;h=70.95",
+   "id": "cusum:drift=0.5;h=24.36",
    "base": "cusum:drift=0.5;h=29",
-   "scale": 2.446716364778602,
-   "blocks": 870,
+   "scale": 0.84,
+   "alarmsByScale": {
+    "1": 0,
+    "2": 0,
+    "3": 0,
+    "4": 0,
+    "0.5": 2,
+    "0.6": 2,
+    "0.7": 2,
+    "0.8": 0,
+    "0.9": 0,
+    "1.15": 0,
+    "1.3": 0,
+    "1.5": 0,
+    "1.75": 0,
+    "2.5": 0
+   },
+   "observedHours": 0.88,
    "spec": {
     "strategy": "cusum",
     "params": {
      "drift": 0.5,
-     "h": 70.95
+     "h": 24.36
     },
     "localization": "lsq",
     "signatureFilter": true,
@@ -52,15 +100,31 @@
    }
   },
   {
-   "id": "mass-balance:windowSec=10;k=5.433",
+   "id": "mass-balance:windowSec=10;k=8.2",
    "base": "mass-balance:windowSec=10;k=5.5",
-   "scale": 0.9879033424400152,
-   "blocks": 870,
+   "scale": 1.491,
+   "alarmsByScale": {
+    "1": 0,
+    "2": 0,
+    "3": 0,
+    "4": 0,
+    "0.5": 5,
+    "0.6": 4,
+    "0.7": 3,
+    "0.8": 2,
+    "0.9": 1,
+    "1.15": 0,
+    "1.3": 0,
+    "1.5": 0,
+    "1.75": 0,
+    "2.5": 0
+   },
+   "observedHours": 0.88,
    "spec": {
     "strategy": "mass-balance",
     "params": {
      "windowSec": 10,
-     "k": 5.433
+     "k": 8.2
     },
     "localization": "lsq",
     "signatureFilter": true,
@@ -68,15 +132,31 @@
    }
   },
   {
-   "id": "rls:tauSec=3;thr=6.147;forgetSec=600;relearnSec=60",
+   "id": "rls:tauSec=3;thr=27.38;forgetSec=600;relearnSec=60",
    "base": "rls:tauSec=3;thr=7;forgetSec=600;relearnSec=60",
-   "scale": 0.8781978572200505,
-   "blocks": 870,
+   "scale": 3.912,
+   "alarmsByScale": {
+    "1": 1,
+    "2": 1,
+    "3": 0,
+    "4": 0,
+    "0.5": 6,
+    "0.6": 4,
+    "0.7": 2,
+    "0.8": 1,
+    "0.9": 1,
+    "1.15": 1,
+    "1.3": 1,
+    "1.5": 1,
+    "1.75": 1,
+    "2.5": 0
+   },
+   "observedHours": 0.88,
    "spec": {
     "strategy": "rls",
     "params": {
      "tauSec": 3,
-     "thr": 6.147,
+     "thr": 27.38,
      "forgetSec": 600,
      "relearnSec": 60
     },
@@ -86,16 +166,32 @@
    }
   },
   {
-   "id": "pca:varExplained=0.9;tauSec=3;thr=15.12;relearnSec=60",
+   "id": "pca:varExplained=0.9;tauSec=3;thr=19.39;relearnSec=60",
    "base": "pca:varExplained=0.9;tauSec=3;thr=12;relearnSec=60",
-   "scale": 1.2601131475551004,
-   "blocks": 870,
+   "scale": 1.616,
+   "alarmsByScale": {
+    "1": 0,
+    "2": 0,
+    "3": 0,
+    "4": 0,
+    "0.5": 3,
+    "0.6": 2,
+    "0.7": 2,
+    "0.8": 1,
+    "0.9": 1,
+    "1.15": 0,
+    "1.3": 0,
+    "1.5": 0,
+    "1.75": 0,
+    "2.5": 0
+   },
+   "observedHours": 0.88,
    "spec": {
     "strategy": "pca",
     "params": {
      "varExplained": 0.9,
      "tauSec": 3,
-     "thr": 15.12,
+     "thr": 19.39,
      "relearnSec": 60
     },
     "localization": "lsq",
@@ -104,16 +200,32 @@
    }
   },
   {
-   "id": "npw:shortSec=1;longSec=5;thr=4.4;tolSec=0.6",
+   "id": "npw:shortSec=1;longSec=5;thr=19.68;tolSec=0.6",
    "base": "npw:shortSec=1;longSec=5;thr=5.5;tolSec=0.6",
-   "scale": 0.8,
-   "blocks": 0,
+   "scale": 3.579,
+   "alarmsByScale": {
+    "1": 0,
+    "2": 1,
+    "3": 0,
+    "4": 0,
+    "0.5": 14,
+    "0.6": 6,
+    "0.7": 2,
+    "0.8": 1,
+    "0.9": 0,
+    "1.15": 0,
+    "1.3": 0,
+    "1.5": 0,
+    "1.75": 0,
+    "2.5": 0
+   },
+   "observedHours": 0.88,
    "spec": {
     "strategy": "npw",
     "params": {
      "shortSec": 1,
      "longSec": 5,
-     "thr": 4.4,
+     "thr": 19.68,
      "tolSec": 0.6
     },
     "localization": "wave-timing",
@@ -122,16 +234,32 @@
    }
   },
   {
-   "id": "kalman:positions=24;qProc=0.002;k=8.631",
+   "id": "kalman:positions=24;qProc=0.002;k=4.41",
    "base": "kalman:positions=24;qProc=0.002;k=7",
-   "scale": 1.2329408763379308,
-   "blocks": 870,
+   "scale": 0.63,
+   "alarmsByScale": {
+    "1": 0,
+    "2": 0,
+    "3": 0,
+    "4": 0,
+    "0.5": 7,
+    "0.6": 0,
+    "0.7": 0,
+    "0.8": 0,
+    "0.9": 0,
+    "1.15": 0,
+    "1.3": 0,
+    "1.5": 0,
+    "1.75": 0,
+    "2.5": 0
+   },
+   "observedHours": 0.88,
    "spec": {
     "strategy": "kalman",
     "params": {
      "positions": 24,
      "qProc": 0.002,
-     "k": 8.631
+     "k": 4.41
     },
     "localization": "lsq",
     "signatureFilter": true,
@@ -139,14 +267,30 @@
    }
   },
   {
-   "id": "fusion[cusum+npw]:thr=1.316;minVotes=2",
+   "id": "fusion[cusum+npw]:thr=3.466;minVotes=2",
    "base": "fusion[cusum+npw]:thr=1;minVotes=2",
-   "scale": 1.3163709726612525,
-   "blocks": 870,
+   "scale": 3.466,
+   "alarmsByScale": {
+    "1": 3,
+    "2": 1,
+    "3": 0,
+    "4": 0,
+    "0.5": 5,
+    "0.6": 4,
+    "0.7": 4,
+    "0.8": 4,
+    "0.9": 4,
+    "1.15": 3,
+    "1.3": 2,
+    "1.5": 2,
+    "1.75": 1,
+    "2.5": 0
+   },
+   "observedHours": 0.88,
    "spec": {
     "strategy": "fusion",
     "params": {
-     "thr": 1.316,
+     "thr": 3.466,
      "minVotes": 2
     },
     "members": [

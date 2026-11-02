@@ -406,3 +406,55 @@ pre.log {
 .toast.error {
   border-left-color: var(--bad);
 }
+
+.legend {
+  margin-top: 4px;
+}
+
+.legend .grad {
+  display: inline-block;
+  width: 60px;
+  height: 8px;
+  border-radius: 4px;
+  vertical-align: middle;
+  background: linear-gradient(90deg, hsl(240, 75%, 50%), hsl(120, 75%, 50%), hsl(0, 75%, 50%));
+}
+
+.progress {
+  height: 6px;
+  background: var(--line);
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 6px 0;
+}
+
+.progress > div {
+  height: 100%;
+  background: var(--accent);
+}
+
+.timeline input[type='range'] {
+  flex: 1;
+}
+
+tr.bad td {
+  color: var(--bad);
+}
+
+/* режим презентации: крупный секундомер и схема, без боковых панелей */
+body.present main {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+body.present .col-left,
+body.present .col-right {
+  display: none;
+}
+
+body.present .stopwatch .big {
+  font-size: 48px;
+}
+
+body.present .stopwatch {
+  font-size: 20px;
+}

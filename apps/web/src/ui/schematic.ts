@@ -36,7 +36,16 @@ export class Schematic {
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'schematic';
     this.canvas.title = 'Клик по трубе — поставить утечку';
-    host.append(this.canvas);
+    host.append(
+      this.canvas,
+      Object.assign(document.createElement('div'), {
+        className: 'legend small muted',
+        innerHTML:
+          '<span class="grad"></span> давление: синий — ниже, красный — выше · ' +
+          '<b style="color:#2563eb">●</b> давление <b style="color:#059669">●</b> расход <b style="color:#d97706">●</b> температура ' +
+          '<b style="color:#dc2626">●</b> неисправен · <b style="color:#dc2626">▲</b> утечка (правда) · <b style="color:#f59e0b">▼</b> оценка места',
+      }),
+    );
     new ResizeObserver(() => this.draw()).observe(host);
     this.canvas.addEventListener('click', (e) => {
       const x = this.toX(e.offsetX);

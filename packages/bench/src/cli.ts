@@ -10,13 +10,13 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { RUNS_CSV_COLUMNS, assertValid, type PipelineConfigInput, type RunRecord, type Scenario, type SelectionFile, type StrategySpec } from '@pipetwin/core';
-import { gumbelScale, scaleThreshold } from '@pipetwin/detect';
+import { scaleThreshold } from '@pipetwin/detect';
 import { defaultCandidates, strategyId } from './candidates';
 import { computeMetrics, formatTable, toCsv } from './metrics';
 import { jobKey, runJobs, type Job } from './pool';
 import { ROOT, readJsonFromRoot } from './runner';
 import { SUITES, type SuiteName } from './scenarios';
-import { BLOCK_SEC, PATTERN_SCALES } from './tune';
+import { pickScale, TUNE_SCALES } from './tune';
 
 const args = process.argv.slice(2);
 const flag = (n: string) => args.includes(`--${n}`);
@@ -66,23 +66,22 @@ async function main(): Promise<void> {
     strategies = (JSON.parse(readFileSync(tunedPath, 'utf8')) as { strategies: Array<{ spec: StrategySpec }> }).strategies.map((t) => t.spec);
     console.error(`пороги — из ${tunedPath}`);
   } else if (!flag('no-tune')) {
-    // FAR калибруется на обычных прогонах без утечки; смены режима (E5) — отдельный жёсткий фильтр в выборе
-    const tuneSet = SUITES.noleak({ ...base, split: 'validation' });
+    // валидационные прогоны без утечки: обычный режим и смены режима (на них ложных тревог быть не должно)
+    const tuneSet = [...SUITES.noleak({ ...base, split: 'validation' }), ...SUITES.e5({ ...base, split: 'validation' }).filter((s) => s.tags?.includes('noleak'))];
     const jobs: Job[] = tuneSet.map((scenario) => ({ kind: 'tune', key: jobKey('tune', scenario, candidates), scenario, strategies: candidates }));
     const res = await runJobs(jobs, { workers, cache, onProgress: progress('калибровка порогов') });
-    const pooled = new Map<string, number[]>();
-    const pattern = new Map<string, number[]>();
+    const counts = new Map<string, number[]>();
+    let observed = 0;
     for (const r of res) {
       if (r.kind !== 'tune') continue;
-      for (const [id, m] of Object.entries(r.maxima)) pooled.set(id, [...(pooled.get(id) ?? []), ...m]);
-      for (const [id, c] of Object.entries(r.patternAlarms)) pattern.set(id, (pattern.get(id) ?? PATTERN_SCALES.map(() => 0)).map((v, i) => v + c[i]!));
+      observed += r.observedSec;
+      for (const [id, c] of Object.entries(r.alarms)) counts.set(id, (counts.get(id) ?? TUNE_SCALES.map(() => 0)).map((v, i) => v + c[i]!));
     }
     const tuned = candidates.map((spec) => {
       const id = strategyId(spec);
-      const counts = pattern.get(id);
-      // по шаблону: наименьший масштаб без ложных тревог на валидационных прогонах
-      const scale = counts ? PATTERN_SCALES[Math.max(0, counts.findIndex((c) => c === 0))] ?? PATTERN_SCALES.at(-1)! : gumbelScale(pooled.get(id) ?? [], BLOCK_SEC, selection.targetFarPerDay);
-      return { base: id, scale, blocks: pooled.get(id)?.length ?? 0, spec: scaleThreshold(spec, scale) };
+      const c = counts.get(id) ?? TUNE_SCALES.map(() => 0);
+      const scale = pickScale(c, observed, selection.targetFarPerDay);
+      return { base: id, scale, alarmsByScale: Object.fromEntries(TUNE_SCALES.map((k, i) => [k, c[i]])), observedHours: Number((observed / 3600).toFixed(2)), spec: scaleThreshold(spec, scale) };
     });
     strategies = tuned.map((t) => t.spec);
     writeFileSync(

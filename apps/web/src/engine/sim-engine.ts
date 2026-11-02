@@ -6,6 +6,7 @@ import type { ControlAction, DataSource, LeakLabelsFile, PipelineConfig, Scenari
 import { Rng } from '@pipetwin/core';
 import { SimulatedSource } from '@pipetwin/core/plant';
 import { ReplaySource } from '@pipetwin/io';
+
 import type { LeakInfo, SimMessage } from './protocol';
 
 interface PendingBlind {
@@ -16,6 +17,7 @@ interface PendingBlind {
 
 export class SimEngine {
   private source: DataSource | null = null;
+  private replaySrc: ReplaySource | null = null;
   private sim: SimulatedSource | null = null;
   private leaks: LeakInfo[] = [];
   private pending: PendingBlind[] = [];
@@ -32,6 +34,7 @@ export class SimEngine {
   init(config: PipelineConfig, seed: number): SimMessage {
     this.sim = new SimulatedSource(config, { seed });
     this.source = this.sim;
+    this.replaySrc = null;
     this.rng = new Rng(seed * 7919 + 1);
     this.leaks = [];
     this.pending = [];
@@ -45,6 +48,7 @@ export class SimEngine {
   replay(frames: SensorFrame[], sensors: SensorSpec[], labels?: LeakLabelsFile): SimMessage {
     const src = new ReplaySource(frames, sensors, labels ? { labels } : {});
     this.source = src;
+    this.replaySrc = src;
     this.sim = null;
     this.leaks = (labels?.leaks ?? []).map((l) => ({ id: l.id, x: l.x, tStart: l.tStart, hidden: false, ...(l.fraction !== undefined ? { sizePct: l.fraction * 100 } : {}) }));
     this.note(`запись: ${frames.length} кадров, ${src.duration.toFixed(0)} с, ${sensors.length} датчиков${labels ? `, размеченных утечек: ${labels.leaks.length}` : ''}`);
@@ -94,6 +98,13 @@ export class SimEngine {
     this.note(text);
   }
 
+  /** Перемотка записи: детектор после неё начинает заново (с прогрева). */
+  seek(t: number): void {
+    if (!this.replaySrc) return;
+    this.replaySrc.seek(Math.max(0, Math.min(t, this.replaySrc.duration)));
+    this.note(`перемотка на ${t.toFixed(0)} с`);
+  }
+
   /** Продвинуть модельное время на dtModel; вернуть пакет для основного потока. */
   advance(dtModel: number): SimMessage | null {
     const src = this.source;
@@ -130,6 +141,17 @@ export class SimEngine {
     const events = this.events;
     this.log = [];
     this.events = [];
-    return { type: 'batch', t: src.t, frames, leaks: this.leaks.map((l) => ({ ...l })), truth, log, events, done: src.done, ...(profile ? { profile } : {}) };
+    return {
+      type: 'batch',
+      t: src.t,
+      frames,
+      leaks: this.leaks.map((l) => ({ ...l })),
+      truth,
+      log,
+      events,
+      done: src.done,
+      ...(profile ? { profile } : {}),
+      ...(this.replaySrc ? { duration: this.replaySrc.duration } : {}),
+    };
   }
 }
