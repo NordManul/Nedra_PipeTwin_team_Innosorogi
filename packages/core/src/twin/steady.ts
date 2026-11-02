@@ -5,7 +5,7 @@
 import type { PipeProfile, PipelineConfig, SensorFrame, SensorId, SensorValues, TwinBoundaryMode, TwinModel, TwinPrediction } from '../contracts';
 import { PipeModel } from '../hydraulics/pipe';
 import { steadyBackward, steadyForward, steadyFromPressures, type PointSink, type SteadyProfile } from '../hydraulics/steady';
-import { BoundaryInput, findEndSensors, InletTemperature, sampleSensors, steadyFromEnd, steadyToProfile } from './common';
+import { BoundaryInput, findEndSensors, InletTemperature, PredictionLag, sampleSensors, steadyFromEnd, steadyToProfile } from './common';
 
 type Mode = Exclude<TwinBoundaryMode, 'auto'>;
 
@@ -16,6 +16,7 @@ export class SteadyTwin implements TwinModel {
   private inputs: Partial<Record<'pIn' | 'qIn' | 'pOut' | 'qOut', BoundaryInput>> = {};
   private tin!: InletTemperature;
   private last: { t: number; s: SteadyProfile; b: Record<string, number>; Tin: number } | null = null;
+  private lag!: PredictionLag;
 
   reset(cfg: PipelineConfig): void {
     this.cfg = cfg;
@@ -35,6 +36,8 @@ export class SteadyTwin implements TwinModel {
     }
     this.tin = new InletTemperature(cfg, e.TIn);
     this.last = null;
+    const ids = new Set(Object.values(this.inputs).map((i) => i!.id));
+    this.lag = new PredictionLag(cfg.sensors, cfg.sensors.filter((s) => ids.has(s.id)));
   }
 
   get boundaryMode(): Mode | null {
@@ -70,7 +73,8 @@ export class SteadyTwin implements TwinModel {
       const s = this.solve(b, Tin);
       this.last = { t: frame.t, s, b, Tin };
       const prof = steadyToProfile(frame.t, this.model, s);
-      return { t: frame.t, values: sampleSensors(this.model, this.cfg.sensors, prof.p, prof.q, prof.T), inputs: inputIds, ok: true };
+      const values = sampleSensors(this.model, this.cfg.sensors, prof.p, prof.q, prof.T);
+      return { t: frame.t, values: this.lag.apply(frame.t, values), inputs: inputIds, ok: true };
     } catch (e) {
       return { t: frame.t, values: {}, inputs: inputIds, ok: false, error: e instanceof Error ? e.message : String(e) };
     }

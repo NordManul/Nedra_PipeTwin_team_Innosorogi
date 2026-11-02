@@ -110,3 +110,38 @@ export class InletTemperature {
     return this.input?.read(frame) ?? evalSchedule(this.cfg.boundary.inletTemp, frame.t);
   }
 }
+
+/**
+ * Запаздывание прогноза под инерцию датчиков. Граничные замеры уже запаздывают на свой lagSec,
+ * поэтому прогноз датчика сглаживается фильтром первого порядка с τ = lag_датчика − lag_входов.
+ * Иначе при волне от насоса инерционный расходомер «отстаёт» от прогноза и это похоже на утечку.
+ */
+export class PredictionLag {
+  private readonly tau = new Map<SensorId, number>();
+  private readonly state = new Map<SensorId, number>();
+  private lastT = NaN;
+
+  constructor(sensors: SensorSpec[], inputs: SensorSpec[]) {
+    const inLag = inputs.length ? inputs.reduce((a, s) => a + s.lagSec, 0) / inputs.length : 0;
+    for (const s of sensors) this.tau.set(s.id, Math.max(0, s.lagSec - inLag));
+  }
+
+  apply(t: number, values: SensorValues): SensorValues {
+    const dt = Number.isFinite(this.lastT) ? t - this.lastT : 0;
+    this.lastT = t;
+    const out: SensorValues = {};
+    for (const [id, v] of Object.entries(values)) {
+      const tau = this.tau.get(id) ?? 0;
+      const prev = this.state.get(id);
+      const y = prev === undefined || tau <= 0 || dt <= 0 ? (prev === undefined || tau <= 0 ? v : prev) : prev + (v - prev) * (1 - Math.exp(-dt / tau));
+      this.state.set(id, y);
+      out[id] = y;
+    }
+    return out;
+  }
+
+  reset(): void {
+    this.state.clear();
+    this.lastT = NaN;
+  }
+}

@@ -9,7 +9,7 @@ import { MocSolver, type BoundarySpec } from '../hydraulics/moc';
 import { PipeModel } from '../hydraulics/pipe';
 import { steadyBackward, steadyForward, steadyFromPressures, type PointSink, type SteadyProfile } from '../hydraulics/steady';
 import { interp } from '../math/stats';
-import { BoundaryInput, findEndSensors, InletTemperature, sampleSensors, steadyFromEnd, steadyToProfile } from './common';
+import { BoundaryInput, findEndSensors, InletTemperature, PredictionLag, sampleSensors, steadyFromEnd, steadyToProfile } from './common';
 
 interface EndInput {
   kind: 'p' | 'q';
@@ -18,6 +18,11 @@ interface EndInput {
 
 /** Если между кадрами разрыв больше этого, модель переинициализируется стационарным профилем. */
 const MAX_GAP_SEC = 10;
+/**
+ * Старт: граничные замеры усредняются за это время, и только потом строится начальный профиль.
+ * Старт из одного зашумлённого отсчёта дал бы волну, которая долго гуляет по трубе.
+ */
+const INIT_SEC = 2;
 
 export class TransientTwin implements TwinModel {
   private cfg!: PipelineConfig;
@@ -27,6 +32,8 @@ export class TransientTwin implements TwinModel {
   private outlet: EndInput | null = null;
   private tin!: InletTemperature;
   private prev: { t: number; bIn: number; bOut: number; Tin: number } | null = null;
+  private lag!: PredictionLag;
+  private init: { t0: number; n: number; bIn: number; bOut: number; Tin: number } | null = null;
 
   reset(cfg: PipelineConfig): void {
     this.cfg = cfg;
@@ -37,6 +44,9 @@ export class TransientTwin implements TwinModel {
     this.outlet = e.pOut ? { kind: 'p', input: new BoundaryInput(e.pOut) } : e.qOut ? { kind: 'q', input: new BoundaryInput(e.qOut) } : null;
     this.tin = new InletTemperature(cfg, e.TIn);
     this.prev = null;
+    this.init = null;
+    const inputs = [this.inlet, this.outlet].filter((x): x is EndInput => !!x).map((x) => cfg.sensors.find((s) => s.id === x.input.id)!);
+    this.lag = new PredictionLag(cfg.sensors, inputs);
   }
 
   get waveSpeed(): number {
@@ -84,7 +94,19 @@ export class TransientTwin implements TwinModel {
     if (bIn === undefined || bOut === undefined) return { t: frame.t, values: {}, inputs, ok: false, error: 'нет граничных замеров' };
     try {
       if (!this.prev || frame.t - this.prev.t > MAX_GAP_SEC || frame.t < this.prev.t) {
-        this.solver.setState(this.steady(bIn, bOut, Tin), frame.t);
+        // накопление средних граничных замеров перед стартом
+        if (!this.init || frame.t < this.init.t0) this.init = { t0: frame.t, n: 0, bIn: 0, bOut: 0, Tin: 0 };
+        const a = this.init;
+        a.n++;
+        a.bIn += (bIn - a.bIn) / a.n;
+        a.bOut += (bOut - a.bOut) / a.n;
+        a.Tin += (Tin - a.Tin) / a.n;
+        if (frame.t - a.t0 < INIT_SEC) return { t: frame.t, values: {}, inputs, ok: false, error: 'инициализация twin' };
+        this.solver.setState(this.steady(a.bIn, a.bOut, a.Tin), frame.t);
+        this.lag.reset();
+        this.init = null;
+        this.prev = { t: frame.t, bIn: a.bIn, bOut: a.bOut, Tin: a.Tin };
+        return { t: frame.t, values: this.lag.apply(frame.t, this.sampleNow()), inputs, ok: true };
       } else {
         const p = this.prev;
         const span = frame.t - p.t;
@@ -97,7 +119,7 @@ export class TransientTwin implements TwinModel {
         }
       }
       this.prev = { t: frame.t, bIn, bOut, Tin };
-      return { t: frame.t, values: this.sampleNow(), inputs, ok: true };
+      return { t: frame.t, values: this.lag.apply(frame.t, this.sampleNow()), inputs, ok: true };
     } catch (e) {
       this.prev = null;
       return { t: frame.t, values: {}, inputs, ok: false, error: e instanceof Error ? e.message : String(e) };
