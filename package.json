@@ -9,7 +9,12 @@
     "apps/*"
   ],
   "scripts": {
-    "typecheck": "tsc -p packages/core/tsconfig.json --noEmit"
+    "dev": "npm run dev -w @pipetwin/web",
+    "build": "npm run build -w @pipetwin/web",
+    "test": "vitest run",
+    "typecheck": "tsc -p packages/core --noEmit && tsc -p packages/detect --noEmit && tsc -p packages/io --noEmit && tsc -p packages/bench --noEmit && tsc -p apps/web --noEmit",
+    "import": "tsx packages/io/src/cli.ts",
+    "fixtures": "tsx scripts/make-import-fixtures.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
