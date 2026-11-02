@@ -9,5 +9,8 @@
   "exports": {
     ".": "./src/index.ts"
   },
-  "dependencies": { "@pipetwin/core": "*" }
+  "dependencies": {
+    "@pipetwin/core": "*",
+    "xlsx": "^0.18.5"
+  }
 }

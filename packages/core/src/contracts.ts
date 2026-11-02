@@ -237,6 +237,15 @@ export interface SensorSpec {
 export type TwinBoundaryMode = 'auto' | 'p_in+q_in' | 'p_in+p_out' | 'p_out+q_out';
 
 export interface TwinSettings {
+  /**
+   * Тип модели twin:
+   *  - 'transient' — нестационарная модель (MOC без утечки), граничные условия — замеры давления
+   *    (или расхода) на концах; повторяет волны от смены режима, поэтому не путает режим с утечкой;
+   *  - 'steady' — квазистационарная модель «как у диспетчера» (ТЗ, WP-A4).
+   * По умолчанию 'transient', если на обоих концах есть датчик давления или расхода, иначе 'steady'.
+   */
+  model?: 'steady' | 'transient';
+  /** Для steady-модели: какие замеры брать как граничные условия. */
   boundaryMode: TwinBoundaryMode;
   /** Явный выбор граничных датчиков; без них — датчики нужного рода с x = 0 / x = length. */
   inletPressureSensor?: SensorId;
@@ -378,8 +387,13 @@ export interface TwinModel {
   predict(frame: SensorFrame): TwinPrediction;
   /** Отклик датчиков на гипотетическую утечку q (м³/с) в точке x (м) — для локализации L2. */
   leakResponse?(x: number, q: number): SensorValues;
-  /** Последний рассчитанный профиль — для интерфейса. */
-  profile?(): PipeProfile;
+  /** Последний рассчитанный профиль — для интерфейса; undefined — расчёта ещё не было. */
+  profile?(): PipeProfile | undefined;
+  /**
+   * Стационарный профиль без утечки от одного конца трубы при заданных давлении (Па) и расходе (м³/с)
+   * на этом конце — для локализации L1 (пересечение линий гидравлического уклона).
+   */
+  steadyProfileFrom?(end: 'inlet' | 'outlet', p: number, q: number): PipeProfile;
 }
 
 // ============================================================================
@@ -562,6 +576,10 @@ export interface DetectorOutput {
   eventClass?: EventClass;
   /** Датчики, признанные недостоверными (залипание, выход за диапазон, долгий пропуск). */
   unhealthySensors?: SensorId[];
+  /** Вклад датчиков в сигнал: доли, сумма = 1, по убыванию (для карточки события). */
+  contributions?: Array<{ sensorId: SensorId; share: number }>;
+  /** Оценка момента начала события, с — для объёма потерь до тревоги. */
+  onsetTime?: Seconds;
 }
 
 export interface Detector {

@@ -85,6 +85,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "model": { "enum": ["steady", "transient"] },
         "boundaryMode": { "enum": ["auto", "p_in+q_in", "p_in+p_out", "p_out+q_out"] },
         "inletPressureSensor": { "$ref": "#/$defs/sensorId" },
         "outletPressureSensor": { "$ref": "#/$defs/sensorId" },

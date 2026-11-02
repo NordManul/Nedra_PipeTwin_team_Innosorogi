@@ -7,6 +7,10 @@
   "dependencies": {
     "@pipetwin/core": "*",
     "@pipetwin/detect": "*",
-    "@pipetwin/io": "*"
+    "@pipetwin/io": "*",
+    "uplot": "^1.6.31"
+  },
+  "devDependencies": {
+    "vite": "^5.4.11"
   }
 }
