@@ -1,23 +1,23 @@
 {
   "$schema": "../schemas/strategy.schema.json",
   "schemaVersion": 1,
-  "strategy": "ewma",
+  "strategy": "cusum",
   "params": {
-    "tauSec": 3,
-    "L": 13.22
+    "drift": 0.5,
+    "h": 53.88
   },
   "localization": "lsq",
   "signatureFilter": true,
   "warmupSec": 60,
-  "selectedAt": "2026-11-02T14:22:41Z",
+  "selectedAt": "2026-11-02T15:18:53Z",
   "evidence": {
-    "ttd_med_s": 12.8,
-    "ttd_p95_s": 39.12,
+    "ttd_med_s": 11.8,
+    "ttd_p95_s": 35.25,
     "mdl_pct": 5.0,
     "far_per_day": 0.0,
-    "loc_med_m": 112.0,
-    "pod_5pct": 0.966
+    "loc_med_m": 127.0,
+    "pod_5pct": 0.993
   },
-  "runnerUp": "cusum",
-  "runsHash": "a24f65cf4cced5a8828889ec016ac2880234f78b"
+  "runnerUp": "ewma",
+  "runsHash": "94b4fc508ff67c78e7b586988a89e851a97dfbea"
 }

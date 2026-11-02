@@ -23,8 +23,9 @@ import { createDetector } from '@pipetwin/detect';
 import { framesFromFile, ReplaySource } from '@pipetwin/io';
 import { overlayLeaks } from './overlay';
 import { strategyId } from './candidates';
+import { fileURLToPath } from 'node:url';
 
-export const ROOT = resolve(import.meta.dirname, '../../..');
+export const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 
 export function readJsonFromRoot(path: string): unknown {
   return JSON.parse(readFileSync(resolve(ROOT, path), 'utf8'));
@@ -126,7 +127,8 @@ export async function runScenario(sc: Scenario, strategies: StrategySpec[], opts
             vLossAt.set(d, vLossAcc);
           }
         }
-        if (tLeak !== null && f.t <= tLeak + maxTtd && out.alarm && d.tAlarm !== null) d.atWindowEnd = out;
+        // место и расход — последняя оценка, пока тревога активна (до конца прогона: методы L1/L2 сходятся после затухания волн)
+        if (tLeak !== null && out.alarm && d.tAlarm !== null) d.atWindowEnd = out;
       }
     }
   }

@@ -66,8 +66,14 @@ export class Schematic {
     this.draw();
   }
 
+  private stateKey = '';
+
   update(state: SchematicState): void {
+    // перерисовка, только если что-то видимое изменилось
+    const key = `${state.profile?.t ?? ''}|${state.alarm}|${state.estimate?.x ?? ''}|${state.unhealthy.join()}|${state.leaks.map((l) => `${l.id}${l.hidden}`).join()}`;
     this.state = state;
+    if (key === this.stateKey) return;
+    this.stateKey = key;
     this.draw();
   }
 

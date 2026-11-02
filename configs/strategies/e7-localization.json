@@ -3,7 +3,7 @@
     "strategy": "cusum",
     "params": {
       "drift": 0.5,
-      "h": 29
+      "h": 53.88
     },
     "signatureFilter": true,
     "warmupSec": 60,
@@ -13,7 +13,7 @@
     "strategy": "cusum",
     "params": {
       "drift": 0.5,
-      "h": 29
+      "h": 53.88
     },
     "signatureFilter": true,
     "warmupSec": 60,
@@ -23,7 +23,7 @@
     "strategy": "cusum",
     "params": {
       "drift": 0.5,
-      "h": 29
+      "h": 53.88
     },
     "signatureFilter": true,
     "warmupSec": 60,

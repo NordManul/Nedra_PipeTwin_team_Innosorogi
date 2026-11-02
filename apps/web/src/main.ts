@@ -87,16 +87,19 @@ class App {
   start(): void {
     this.layout();
     this.loadConfig(this.input);
-    const frame = () => {
-      if (this.dirty) {
+    // перерисовка — только когда пришли новые данные, и не чаще 30 раз в секунду
+    let last = 0;
+    const frame = (now: number) => {
+      if (this.dirty && now - last >= 33) {
         this.dirty = false;
+        last = now;
         this.render();
       }
       requestAnimationFrame(frame);
     };
-    // графики не чаще 30 раз в секунду
-    setInterval(() => (this.dirty = true), 33);
     requestAnimationFrame(frame);
+    // редкие обновления панелей (журнал, датчики) и при паузе
+    setInterval(() => (this.dirty = true), 500);
   }
 
   // ------------------------------------------------------------------ конфиг и воркеры
@@ -185,6 +188,7 @@ class App {
     }
     this.simT = m.t;
     this.leaks = m.leaks;
+    this.dirty = true;
     if (m.duration !== undefined) this.replayDuration = m.duration;
     if (m.profile) this.plantProfile = m.profile;
     for (const l of m.log) this.log(l);
@@ -229,6 +233,7 @@ class App {
       return;
     }
     if (m.twinProfile) this.twinProfile = m.twinProfile;
+    this.dirty = true;
     m.outs.forEach((out, i) => {
       const frame = this.pending.shift();
       const pred = m.preds[i];

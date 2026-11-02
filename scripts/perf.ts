@@ -6,8 +6,9 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createTwin, resolveConfig, type PipelineConfigInput } from '../packages/core/src';
 import { Plant, SimulatedSource } from '../packages/core/src/plant';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(import.meta.dirname, '..');
+const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const base = JSON.parse(readFileSync(resolve(ROOT, 'configs/pipeline.default.json'), 'utf8')) as PipelineConfigInput;
 
 for (const nodes of [500, 1000, 2000]) {

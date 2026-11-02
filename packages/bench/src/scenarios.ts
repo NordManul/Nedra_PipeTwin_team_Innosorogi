@@ -198,7 +198,20 @@ export function suiteRandom(o: SuiteOptions & { count?: number }): Scenario[] {
   return out;
 }
 
+/** E7: методы места — утечки 2–10% с наблюдением 150 с после утечки (волны успевают затухнуть). */
+export function suiteE7(o: SuiteOptions): Scenario[] {
+  const L = lengthOf(o.pipeline);
+  const seeds = (o.split === 'validation' ? o.seeds.validation : o.seeds.test).slice(0, o.quick ? 1 : 3);
+  const pipe = noiseInput(o.pipeline, 0.3);
+  const out: Scenario[] = [];
+  for (const size of [2, 5, 10]) for (const pl of [0.1, 0.3, 0.5, 0.7, 0.9]) for (const seed of seeds) {
+    out.push(scenario(`e7-s${size}-x${pl}-${seed}`, pipe, [leak(L, pl, size, 0)], seed, o.split, LEAK_T + 150, ['E7', `size:${size}`]));
+  }
+  return out;
+}
+
 export const SUITES = {
+  e7: suiteE7,
   e3: suiteE3,
   e4: suiteE4,
   e5: suiteE5,

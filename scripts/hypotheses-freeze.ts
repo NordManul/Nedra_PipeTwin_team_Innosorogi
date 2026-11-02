@@ -8,8 +8,9 @@ import { resolve } from 'node:path';
 import { createTwin, resolveConfig } from '../packages/core/src';
 import { SimulatedSource } from '../packages/core/src/plant';
 import { createDetector, defaultStrategy } from '../packages/detect/src';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(import.meta.dirname, '..');
+const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const cfg = resolveConfig(JSON.parse(readFileSync(resolve(ROOT, 'configs/pipeline.default.json'), 'utf8'))).config;
 const truth = structuredClone(cfg);
 truth.geometry.roughness = 8e-5;

@@ -7,18 +7,18 @@
   },
   "members": [
    {
-    "detector": "ewma",
+    "detector": "threshold",
     "params": {
-     "tauSec": 3,
-     "L": 13.22
+     "windowSec": 2,
+     "k": 9.154
     },
     "weight": 1
    },
    {
-    "detector": "cusum",
+    "detector": "ewma",
     "params": {
-     "drift": 0.5,
-     "h": 70.95
+     "tauSec": 3,
+     "L": 9.239
     },
     "weight": 1
    }

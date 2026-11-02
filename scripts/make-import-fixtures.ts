@@ -7,8 +7,9 @@ import { resolve } from 'node:path';
 import * as XLSX from 'xlsx';
 import { resolveConfig } from '../packages/core/src';
 import { SimulatedSource } from '../packages/core/src/plant';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(import.meta.dirname, '..');
+const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const OUT = resolve(ROOT, 'fixtures/import');
 mkdirSync(OUT, { recursive: true });
 

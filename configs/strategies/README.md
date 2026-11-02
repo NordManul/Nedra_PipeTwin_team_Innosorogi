@@ -7,5 +7,5 @@
 | `e7-localization.json` | E7: один детектор (CUSUM) с тремя методами места L1 `hgl`, L2 `lsq`, L3 `wave-timing` |
 
 ```bash
-npm run bench -- --strategies configs/strategies/e7-localization.json --suite e3 --out results/runs.e7.csv
+npm run bench -- --no-tune --strategies configs/strategies/e7-localization.json --suite e7 --out results/runs.e7.csv
 ```

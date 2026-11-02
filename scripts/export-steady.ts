@@ -6,8 +6,9 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PipeModel, resolveConfig, steadyForward, type PipelineConfigInput } from '../packages/core/src';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(import.meta.dirname, '..');
+const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const read = (p: string) => JSON.parse(readFileSync(resolve(ROOT, p), 'utf8')) as PipelineConfigInput;
 
 const cases: Array<{ name: string; input: PipelineConfigInput; pIn: number; q: number }> = [
