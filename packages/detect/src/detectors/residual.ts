@@ -32,7 +32,7 @@ export class ThresholdStat implements Statistic {
   private readonly win = new Map<string, RollingWindow>();
   private readonly n: number;
   private readonly onset = new OnsetTracker();
-  constructor(private readonly sc: StatContext, private readonly p: DetectorParams) {
+  constructor(sc: StatContext, private readonly p: DetectorParams) {
     this.n = Math.max(1, Math.round(p.windowSec! / sc.binSec));
   }
   update(s: PreparedSample): StatOut {

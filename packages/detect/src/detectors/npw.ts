@@ -39,7 +39,7 @@ export class DropTracker {
   constructor(
     private readonly sc: StatContext,
     private readonly shortSec: number,
-    private readonly longSec: number,
+    longSec: number,
     private readonly thr: number,
     private readonly tolSec: number,
   ) {

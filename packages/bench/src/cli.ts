@@ -3,11 +3,11 @@
  *   npm run bench                       — полная матрица (E3, E5, длинные без утечки, случайные трубы)
  *   npm run bench -- --quick            — уменьшенная матрица (< 3 мин)
  *   npm run bench -- --suite e3,e4,e5,e6,random,noleak,files
- *   опции: --config <pipeline.json> --workers N --no-cache --no-tune --strategies <file.json>
+ *   опции: --config <pipeline.json> --workers N --no-cache --no-tune --reuse-tuned --strategies <file.json> --out <runs.csv>
  * Шаги (ТЗ, раздел 14): 1) пороги на валидационных seed под FAR из selection.json;
  * 2) прогон тестовых seed с зафиксированными порогами → results/runs.csv. Выбор — python/analysis/select_strategy.py.
  */
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { RUNS_CSV_COLUMNS, assertValid, type PipelineConfigInput, type RunRecord, type Scenario, type SelectionFile, type StrategySpec } from '@pipetwin/core';
 import { gumbelScale, scaleThreshold } from '@pipetwin/detect';
@@ -59,9 +59,13 @@ async function main(): Promise<void> {
   const base = { quick, pipeline, seeds: selection.seeds };
   mkdirSync(resolve(ROOT, 'results'), { recursive: true });
 
-  // 1. калибровка порогов на валидационных прогонах без утечки
+  // 1. калибровка порогов на валидационных прогонах без утечки (или пороги прошлой калибровки)
   let strategies = candidates;
-  if (!flag('no-tune')) {
+  const tunedPath = resolve(ROOT, 'results/strategies.tuned.json');
+  if (flag('reuse-tuned') && existsSync(tunedPath)) {
+    strategies = (JSON.parse(readFileSync(tunedPath, 'utf8')) as { strategies: Array<{ spec: StrategySpec }> }).strategies.map((t) => t.spec);
+    console.error(`пороги — из ${tunedPath}`);
+  } else if (!flag('no-tune')) {
     // FAR калибруется на обычных прогонах без утечки; смены режима (E5) — отдельный жёсткий фильтр в выборе
     const tuneSet = SUITES.noleak({ ...base, split: 'validation' });
     const jobs: Job[] = tuneSet.map((scenario) => ({ kind: 'tune', key: jobKey('tune', scenario, candidates), scenario, strategies: candidates }));

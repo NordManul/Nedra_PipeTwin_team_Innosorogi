@@ -142,7 +142,6 @@ export class MocSolver {
     const mL = this.mL;
     const mR = this.mR;
     const rho = this.rhoSeg;
-    const mu = this.muSeg;
     const pN = this.pN;
     const mLN = this.mLN;
     const mRN = this.mRN;

@@ -32,7 +32,7 @@ METRICS = ["ttd_med", "ttd_p95", "mdl", "loc_med", "far"]
 
 
 def base_name(strategy_id: str) -> str:
-    """«cusum:k=…» → «cusum», «fusion[cusum+npw]:…» → «fusion»."""
+    """«cusum:k=…@hgl» → «cusum», «fusion[cusum+npw]:…» → «fusion»."""
     return strategy_id.split(":")[0].split("[")[0]
 
 
@@ -198,8 +198,10 @@ def spec_for(strategy_id: str, tuned: dict) -> dict:
         if s["id"] == strategy_id:
             return s["spec"]
     name, _, rest = strategy_id.partition(":")
+    rest, _, loc = rest.partition("@")
     params = {k: float(v) for k, v in (p.split("=") for p in rest.split(";") if "=" in p)}
-    return {"strategy": base_name(name), "params": params, "localization": "lsq", "signatureFilter": True, "warmupSec": 60}
+    default_loc = "wave-timing" if base_name(name) == "npw" else "lsq"
+    return {"strategy": base_name(name), "params": params, "localization": loc or default_loc, "signatureFilter": True, "warmupSec": 60}
 
 
 def fmt(v: float, d: int = 1, scale: float = 1.0) -> str:

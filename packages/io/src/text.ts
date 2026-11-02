@@ -51,7 +51,15 @@ function modeOf(xs: number[]): number {
 /** Одна строка CSV с кавычками («"a;b";c»). */
 export function parseCsvLine(line: string, d: Delimiter): string[] {
   if (d === ' ') return line.trim().split(/\s+/);
-  if (!line.includes('"')) return line.split(d).map((c) => c.trim());
+  if (!line.includes('"')) {
+    const cells = line.split(d);
+    // trim только там, где есть пробелы по краям: на миллионах строк это основная затрата
+    for (let i = 0; i < cells.length; i++) {
+      const c = cells[i]!;
+      if (c.length && (c.charCodeAt(0) <= 32 || c.charCodeAt(c.length - 1) <= 32)) cells[i] = c.trim();
+    }
+    return cells;
+  }
   const out: string[] = [];
   let cur = '';
   let q = false;

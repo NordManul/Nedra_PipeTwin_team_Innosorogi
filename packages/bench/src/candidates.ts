@@ -27,5 +27,7 @@ export function strategyId(s: StrategySpec): string {
     .map(([k, v]) => `${k}=${Number(v.toPrecision(4))}`)
     .join(';');
   const m = s.members ? `[${s.members.map((x) => x.detector).join('+')}]` : '';
-  return `${s.strategy}${m}:${p}`;
+  // метод места — в id, если он не по умолчанию (иначе варианты L1/L2/L3 слились бы в runs.csv)
+  const loc = s.localization !== defaultStrategy(s.strategy === 'fusion' ? 'cusum' : s.strategy).localization ? `@${s.localization}` : '';
+  return `${s.strategy}${m}:${p}${loc}`;
 }

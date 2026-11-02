@@ -96,11 +96,8 @@ export class DetectEngine {
     }
     if (out.alarm && this.card && out.t - this.cardAt >= 1) {
       // уточнение: место и расход сходятся по мере прихода волн; время тревоги прежнее
-      const updated = buildEventCard({ ...out, t: this.card.tAlarm, onsetTime: out.onsetTime }, { ...opts, id: this.card.id });
-      if (updated.vLoss !== undefined && out.leakRate !== undefined) {
-        updated.vLoss = out.leakRate * Math.max(0, this.card.tAlarm - (out.onsetTime ?? this.card.tAlarm));
-        updated.vLossForecast30min = updated.vLoss + out.leakRate * 1800;
-      }
+      // время тревоги прежнее, поэтому и потери считаются «к моменту тревоги» по уточнённому расходу
+      const updated = buildEventCard({ ...out, t: this.card.tAlarm }, { ...opts, id: this.card.id });
       this.card = { ...updated, ...(this.card.acknowledgedAt !== undefined ? { acknowledgedAt: this.card.acknowledgedAt } : {}) };
       this.cardAt = out.t;
       return this.card;
