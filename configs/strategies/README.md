@@ -6,7 +6,7 @@
 | --- | --- |
 | `e7-localization.json` | E7: один детектор (CUSUM) с тремя методами места L1 `hgl`, L2 `lsq`, L3 `wave-timing` |
 | `fusion-threshold-ewma.json` | H-B3: слияние порога и EWMA против CUSUM, порога и EWMA по отдельности |
-| `cusum-only.json` | H-B10: CUSUM на конфигах с фильтром граничных давлений (`configs/pipeline.filter1.json`, `pipeline.filter2.json`) |
+| `cusum-only.json` | H-B10, H-B11: CUSUM на конфигах с фильтром граничных давлений — EMA (`configs/pipeline.filter{1,2}.json`) и Калман (`configs/pipeline.kalman{1,2,5}.json`) |
 
 ```bash
 npm run bench -- --no-tune --strategies configs/strategies/e7-localization.json --suite e7 --out results/runs.e7.csv
