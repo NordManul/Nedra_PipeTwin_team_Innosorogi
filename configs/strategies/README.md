@@ -5,7 +5,19 @@
 | Файл | Эксперимент |
 | --- | --- |
 | `e7-localization.json` | E7: один детектор (CUSUM) с тремя методами места L1 `hgl`, L2 `lsq`, L3 `wave-timing` |
+| `fusion-threshold-ewma.json` | H-B3: слияние порога и EWMA против CUSUM, порога и EWMA по отдельности |
+| `cusum-only.json` | H-B10: CUSUM на конфигах с фильтром граничных давлений (`configs/pipeline.filter1.json`, `pipeline.filter2.json`) |
 
 ```bash
 npm run bench -- --no-tune --strategies configs/strategies/e7-localization.json --suite e7 --out results/runs.e7.csv
 ```
+
+```bash
+npm run bench -- --strategies configs/strategies/fusion-threshold-ewma.json --suite e3,e5,noleak,random --out results/runs.fusion.csv
+```
+
+```bash
+npm run bench -- --config configs/pipeline.filter1.json --strategies configs/strategies/cusum-only.json --suite e3,e5,noleak --out results/runs.filter1.csv
+```
+
+Без `--reuse-tuned` стенд калибрует пороги заново и перезаписывает `results/strategies.tuned.json` — сохраните основной файл заранее.
