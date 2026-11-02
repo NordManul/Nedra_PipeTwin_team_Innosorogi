@@ -9,15 +9,15 @@
   "localization": "lsq",
   "signatureFilter": true,
   "warmupSec": 60,
-  "selectedAt": "2026-11-02T15:18:53Z",
+  "selectedAt": "2026-11-02T16:58:31Z",
   "evidence": {
     "ttd_med_s": 11.8,
     "ttd_p95_s": 35.25,
     "mdl_pct": 5.0,
     "far_per_day": 0.0,
-    "loc_med_m": 127.0,
+    "loc_med_m": 349.0,
     "pod_5pct": 0.993
   },
   "runnerUp": "ewma",
-  "runsHash": "94b4fc508ff67c78e7b586988a89e851a97dfbea"
+  "runsHash": "1298a9bbaa7656eee8dbb445252627731a6c6416"
 }
