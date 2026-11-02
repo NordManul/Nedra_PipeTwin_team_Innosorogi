@@ -22,7 +22,7 @@ export class Importer {
 
   private renderIdle(msg?: string): void {
     clear(this.host);
-    const inp = h('input', { type: 'file', accept: '.csv,.tsv,.txt,.xlsx,.xls,.json' });
+    const inp = h('input', { type: 'file', accept: '.csv,.tsv,.txt,.xlsx,.xlsm,.json' });
     inp.addEventListener('change', () => {
       const f = inp.files?.[0];
       if (f) void this.load(f);

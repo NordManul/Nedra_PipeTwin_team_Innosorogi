@@ -5,5 +5,6 @@ export { buildTable, detectLayout, findTimeColumns, type Layout, type TableResul
 export { guessColumn, guessKind, unitFromHeader, positionFromName, unitFromMagnitude, type ColumnGuess } from './guess';
 export { parseTime, parseDateTime, zonedToUtc, excelToWallMs, looksLikeTime } from './time';
 export { decodeBytes, parseCsv, parseCsvLine, detectDelimiter, detectDecimal, parseCell, type Delimiter, type DecimalSep, type Encoding } from './text';
+export { readXlsx, writeXlsx, type XlsxSheet, type XlsxSheetOut } from './xlsx';
 export { readWorkbook, rowsFromJson, writeFramesCsv, readFramesCsv, ReplaySource, type Sheet, type ReplayOptions } from './sources';
 export { parsePassportText, parsePassportRows, type PassportResult } from './passport';

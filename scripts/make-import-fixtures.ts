@@ -4,9 +4,9 @@
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import * as XLSX from 'xlsx';
 import { resolveConfig } from '../packages/core/src';
 import { SimulatedSource } from '../packages/core/src/plant';
+import { writeXlsx } from '../packages/io/src/xlsx';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
@@ -93,18 +93,17 @@ writeFileSync(resolve(OUT, 'expected.human.json'), JSON.stringify({ note: 'зн�
 
 // 5. Excel: данные на втором листе, объединённая ячейка-заголовок над таблицей
 {
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Описание выгрузки'], ['Участок НПС-1 — НПС-2'], ['Единицы — во второй строке таблицы']]), 'Описание');
   const aoa: (string | number)[][] = [
-    ['Замеры участка', '', '', '', '', '', '', '', ''],
+    ['Замеры участка'],
     ['Время', ...ids.map((id) => tags[id]!)],
     ['', 'МПа', 'м3/ч', '°C', 'МПа', 'МПа', 'МПа', 'м3/ч', '°C'],
   ];
   frames.forEach((f, i) => aoa.push([new Date(START_UTC + i * 100).toISOString(), ...ids.map((id) => Number(fmt(human(id, f.values[id]!), digits(id))))]));
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 8 } }];
-  XLSX.utils.book_append_sheet(wb, ws, 'Данные');
-  writeFileSync(resolve(OUT, 'multi_sheet.xlsx'), XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
+  const book = writeXlsx([
+    { name: 'Описание', rows: [['Описание выгрузки'], ['Участок НПС-1 — НПС-2'], ['Единицы — во второй строке таблицы']] },
+    { name: 'Данные', rows: aoa, merges: ['A1:I1'] },
+  ]);
+  writeFileSync(resolve(OUT, 'multi_sheet.xlsx'), book);
 }
 
 // 6. JSON: массив записей и колоночный формат (время — секунды от начала)

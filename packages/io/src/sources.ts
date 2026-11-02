@@ -3,8 +3,9 @@
  */
 import type { DataSource, GroundTruth, LeakLabelsFile, SensorFrame, SensorSpec } from '@pipetwin/core';
 import { parseCsv, splitLines } from './text';
+import { readXlsx } from './xlsx';
 
-// ---------------------------------------------------------------- Excel (SheetJS)
+// ---------------------------------------------------------------- Excel
 
 export interface Sheet {
   name: string;
@@ -15,18 +16,9 @@ export interface Sheet {
   dataRows: number;
 }
 
-/** Прочитать книгу Excel: листы со строками; объединённые ячейки шапки заполняются. Лучший лист — первым. */
+/** Прочитать книгу .xlsx: листы со строками; объединённые ячейки шапки заполняются. Лучший лист — первым. */
 export async function readWorkbook(bytes: Uint8Array): Promise<Sheet[]> {
-  const XLSX = await import('xlsx');
-  const wb = XLSX.read(bytes, { type: 'array', cellDates: false });
-  const sheets: Sheet[] = wb.SheetNames.map((name, index) => {
-    const ws = wb.Sheets[name]!;
-    for (const m of ws['!merges'] ?? []) {
-      const src = ws[XLSX.utils.encode_cell(m.s)];
-      if (!src) continue;
-      for (let r = m.s.r; r <= m.e.r; r++) for (let c = m.s.c; c <= m.e.c; c++) ws[XLSX.utils.encode_cell({ r, c })] ??= { ...src };
-    }
-    const rows = (XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' }) as unknown[][]).map((r) => r.map((v) => (v === null || v === undefined ? '' : String(v))));
+  const sheets: Sheet[] = readXlsx(bytes).map(({ name, rows }, index) => {
     const dataRows = rows.filter((r) => r.filter((c) => c !== '' && Number.isFinite(Number(c))).length >= Math.max(2, r.length / 2)).length;
     return { name, index, rows, dataRows };
   });

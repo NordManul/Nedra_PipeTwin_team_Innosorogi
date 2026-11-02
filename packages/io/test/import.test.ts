@@ -40,6 +40,14 @@ describe('T-C03 Excel с несколькими листами', () => {
     expect(r.table.columns.length).toBe(8);
     expect(r.table.columns[0]!.data[3]).toBeCloseTo(expected.rows[3]!.values.p_in!, 9);
   });
+
+  it('книга, записанная сторонней программой (SheetJS), читается так же', async () => {
+    const a = await importFile(bytes('multi_sheet.xlsx'), 'multi_sheet.xlsx');
+    const b = await importFile(bytes('multi_sheet_sheetjs.xlsx'), 'multi_sheet_sheetjs.xlsx');
+    expect(b.sheets!.map((s) => s.name)).toEqual(a.sheets!.map((s) => s.name));
+    expect(b.layout).toEqual(a.layout);
+    expect(b.table.columns.map((c) => c.data)).toEqual(a.table.columns.map((c) => c.data));
+  });
 });
 
 describe('T-C04 форматы времени', () => {
