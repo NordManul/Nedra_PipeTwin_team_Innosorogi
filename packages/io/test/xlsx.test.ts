@@ -36,16 +36,18 @@ describe('чтение .xlsx', () => {
     ]);
   });
 
-  it('ячейки без адреса, таблица не с A1, встроенные строки, объединение', () => {
+  it('ячейки без адреса, таблица не с A1, встроенные строки, объединение в шапке и баннер', () => {
     const xml =
-      '<row r="3"><c r="C3" t="inlineStr"><is><t>Замеры</t></is></c></row>' +
+      '<row r="2"><c r="A2" t="inlineStr"><is><t>Архив участка</t></is></c></row>' +
+      '<row r="3"><c r="A3" t="inlineStr"><is><t>Время</t></is></c><c r="C3" t="inlineStr"><is><t>Давление</t></is></c></row>' +
       '<row r="4"><c t="inlineStr"><is><t>t</t></is></c><c><v>1</v></c></row>' +
       '<row><c r="C5"><v>0.1</v></c><c r="D5"><v>2</v></c></row>' +
-      '</sheetData><mergeCells count="1"><mergeCell ref="C3:D3"/></mergeCells><sheetData>';
+      '</sheetData><mergeCells count="2"><mergeCell ref="A2:D2"/><mergeCell ref="C3:D3"/></mergeCells><sheetData>';
     const [s] = readXlsx(book(xml));
-    // строка 4 без адресов начинается с колонки A — таблица от A3
+    // баннер в строке 2 не размножается; «Давление» над двумя колонками — размножается
     expect(s!.rows).toEqual([
-      ['', '', 'Замеры', 'Замеры'],
+      ['Архив участка'],
+      ['Время', '', 'Давление', 'Давление'],
       ['t', '1'],
       ['', '', '0.1', '2'],
     ]);

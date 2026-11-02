@@ -87,13 +87,16 @@ function parseSheet(xml: string, shared: string[]): string[][] {
       row[colNo] = val;
     }
   }
-  // объединённые ячейки: значение левой верхней — во все ячейки области (шапки «на несколько колонок»)
+  // объединённые ячейки шапки («Давление» над двумя колонками): значение левой верхней — во все ячейки области.
+  // Заголовок-баннер (в его строке больше ничего нет) не размножаем — иначе он выглядит как строка названий колонок.
   for (const mm of xml.matchAll(/<mergeCell\s[^>]*ref="([A-Z]+[0-9]+):([A-Z]+[0-9]+)"/g)) {
     const a = cellRef(mm[1]!);
     const b = cellRef(mm[2]!);
     if (!a || !b) continue;
     const src = grid[a[0]]?.[a[1]];
     if (src === undefined || src === '') continue;
+    const banner = !(grid[a[0]] ?? []).some((v, c) => v !== undefined && v !== '' && (c < a[1] || c > b[1]));
+    if (banner) continue;
     for (let r = a[0]; r <= b[0]; r++) for (let c = a[1]; c <= b[1]; c++) {
       const row = (grid[r] ??= []);
       if (row[c] === undefined || row[c] === '') row[c] = src;
