@@ -1,0 +1,133 @@
+[
+  {
+    "strategy": "cusum",
+    "params": {
+      "drift": 0.5,
+      "h": 53.88
+    },
+    "signatureFilter": true,
+    "warmupSec": 60,
+    "localization": "lsq"
+  },
+  {
+    "strategy": "ewma",
+    "params": {
+      "tauSec": 3,
+      "L": 9.239
+    },
+    "signatureFilter": true,
+    "warmupSec": 60,
+    "localization": "lsq"
+  },
+  {
+    "strategy": "npw",
+    "params": {
+      "shortSec": 1,
+      "longSec": 5,
+      "thr": 5.775,
+      "tolSec": 0.6
+    },
+    "signatureFilter": true,
+    "warmupSec": 60,
+    "localization": "wave-timing"
+  },
+  {
+    "strategy": "fusion",
+    "params": {
+      "thr": 1,
+      "minVotes": 1
+    },
+    "fusionRule": "vote",
+    "members": [
+      {
+        "detector": "cusum",
+        "params": {
+          "drift": 0.5,
+          "h": 53.88
+        },
+        "weight": 1
+      },
+      {
+        "detector": "ewma",
+        "params": {
+          "tauSec": 3,
+          "L": 9.239
+        },
+        "weight": 1
+      }
+    ],
+    "signatureFilter": true,
+    "warmupSec": 60,
+    "localization": "lsq"
+  },
+  {
+    "strategy": "fusion",
+    "params": {
+      "thr": 1,
+      "minVotes": 1
+    },
+    "fusionRule": "vote",
+    "members": [
+      {
+        "detector": "cusum",
+        "params": {
+          "drift": 0.5,
+          "h": 53.88
+        },
+        "weight": 1
+      },
+      {
+        "detector": "npw",
+        "params": {
+          "shortSec": 1,
+          "longSec": 5,
+          "thr": 5.775,
+          "tolSec": 0.6
+        },
+        "weight": 1
+      }
+    ],
+    "signatureFilter": true,
+    "warmupSec": 60,
+    "localization": "lsq"
+  },
+  {
+    "strategy": "fusion",
+    "params": {
+      "thr": 1,
+      "minVotes": 1
+    },
+    "fusionRule": "vote",
+    "members": [
+      {
+        "detector": "cusum",
+        "params": {
+          "drift": 0.5,
+          "h": 53.88
+        },
+        "weight": 1
+      },
+      {
+        "detector": "ewma",
+        "params": {
+          "tauSec": 3,
+          "L": 9.239
+        },
+        "weight": 1
+      },
+      {
+        "detector": "npw",
+        "params": {
+          "shortSec": 1,
+          "longSec": 5,
+          "thr": 5.775,
+          "tolSec": 0.6
+        },
+        "weight": 1
+      }
+    ],
+    "signatureFilter": true,
+    "warmupSec": 60,
+    "localization": "lsq"
+  }
+]

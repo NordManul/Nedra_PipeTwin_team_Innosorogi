@@ -92,3 +92,26 @@ describe('H-B12 ML-оценка места (k ближайших соседей)
     expect(quantile([0, 10], 0.25)).toBe(2.5);
   });
 });
+
+describe('калибровка слияния «ИЛИ»', () => {
+  it('масштабирует пороги участников, а не число голосов', async () => {
+    const { scaleThreshold } = await import('../src');
+    const spec = {
+      strategy: 'fusion' as const,
+      params: { thr: 1, minVotes: 1 },
+      fusionRule: 'vote' as const,
+      members: [
+        { detector: 'cusum' as const, params: { drift: 0.5, h: 50 }, weight: 1 },
+        { detector: 'ewma' as const, params: { tauSec: 3, L: 9 }, weight: 1 },
+      ],
+      localization: 'lsq' as const,
+      signatureFilter: true,
+      warmupSec: 60,
+    };
+    const s = scaleThreshold(spec, 1.2);
+    expect(s.params.minVotes).toBe(1);
+    expect(s.members![0]!.params!.h).toBeCloseTo(60, 6);
+    expect(s.members![1]!.params!.L).toBeCloseTo(10.8, 6);
+    expect(s.members![0]!.params!.drift).toBe(0.5);
+  });
+});
