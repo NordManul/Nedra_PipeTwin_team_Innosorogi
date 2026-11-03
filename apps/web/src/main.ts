@@ -5,6 +5,7 @@
 import './style.css';
 import type {
   ActionsFile,
+  ActiveLeak,
   ControlAction,
   DetectorOutput,
   EventCard,
@@ -82,9 +83,10 @@ class App {
   private panelsAt = 0;
   /** История зоны поиска текущей (последней) тревоги — для воронки. */
   private zone: ZoneSample[] = [];
-  private zoneStart = NaN;
-  private leakAlarmId: string | null = null;
-  private leakAlarmText = '';
+  /** Активные утечки (по выходу детектора): сигнал в журнале, текст, история зоны поиска. */
+  private leakAlarms = new Map<string, { alarmId: string; text: string; tAlarm: number; zone: ZoneSample[] }>();
+  /** Активные утечки последнего выхода — для мнемосхемы. */
+  private activeLeaks: ActiveLeak[] = [];
   private faultAlarms = new Map<string, string>();
   private lastEventClass: string | undefined;
   private lastRegimeT = -Infinity;
@@ -204,9 +206,8 @@ class App {
 
   private resetZone(): void {
     this.zone = [];
-    this.zoneStart = NaN;
-    this.leakAlarmId = null;
-    this.leakAlarmText = '';
+    this.leakAlarms.clear();
+    this.activeLeaks = [];
   }
 
   private sendSim(c: SimCommand): void {
@@ -316,34 +317,46 @@ class App {
 
   /** Сигналы оператору (журнал, строка аварии) и история зоны поиска — из выхода детектора. */
   private trackAlarms(out: DetectorOutput): void {
-    const zoneText = () => {
-      const iv = out.locationInterval;
+    const L = this.resolved.config.geometry.length;
+    const zoneText = (l: ActiveLeak) => {
+      const iv = l.locationInterval;
       if (!iv) return 'место уточняется';
-      return `зона поиска км ${fmt(km(iv[0]), 1)}–${fmt(km(iv[1]), 1)}${out.locationStage ? ` (${STAGE_NAMES[out.locationStage]})` : ''}`;
+      if (iv[1] - iv[0] >= 0.9 * L) return 'место не определено — весь участок (сигнал слабый)';
+      return `зона поиска км ${fmt(km(iv[0]), 1)}–${fmt(km(iv[1]), 1)}${l.locationStage ? ` (${STAGE_NAMES[l.locationStage]})` : ''}`;
     };
-    if (out.alarm && !this.lastAlarm) {
-      this.zone = [];
-      this.zoneStart = out.t;
-      const what = out.eventClass === 'unknown' ? 'Отклонение от модели неясной природы' : 'Признаки утечки';
-      this.leakAlarmText = `${what}: ${zoneText()}`;
-      this.leakAlarmId = this.alarms.raise('alarm', out.t, 'СОУ, участок', this.leakAlarmText);
-    }
-    if (out.alarm && this.leakAlarmId) {
-      const text = `${out.eventClass === 'unknown' ? 'Отклонение от модели неясной природы' : 'Признаки утечки'}: ${zoneText()}${out.leakRate !== undefined ? `, ≈ ${fmt(out.leakRate * 3600, 0)} м³/ч` : ''}`;
-      if (text !== this.leakAlarmText) {
-        this.leakAlarmText = text;
-        this.alarms.update(this.leakAlarmId, text);
+    const leaks = out.leaks ?? [];
+    this.activeLeaks = leaks;
+    for (const l of leaks) {
+      const n = l.id.replace(/^L/, '');
+      const what = out.eventClass === 'unknown' && l.state === 'detecting' ? 'отклонение от модели неясной природы' : 'признаки утечки';
+      const text = `Утечка №${n}${l.state === 'confirmed' ? ' (подтверждена)' : ''}: ${what}, ${zoneText(l)}${l.leakRate !== undefined ? `, ≈ ${fmt(l.leakRate * 3600, 0)} м³/ч` : ''}`;
+      let rec = this.leakAlarms.get(l.id);
+      if (!rec) {
+        rec = { alarmId: this.alarms.raise('alarm', out.t, 'СОУ, участок', text), text, tAlarm: l.tAlarm, zone: [] };
+        this.leakAlarms.set(l.id, rec);
+        // для секундомера тренажёра: каждая новая утечка — своя тревога (общий флаг тревоги при нескольких утечках не гаснет)
+        if (!this.alarmTimes.includes(l.tAlarm)) this.alarmTimes.push(l.tAlarm);
+      } else if (rec.text !== text) {
+        rec.text = text;
+        this.alarms.update(rec.alarmId, text);
       }
-      const iv = out.locationInterval;
-      const last = this.zone.at(-1);
-      if (iv && out.location !== undefined && (!last || out.t - this.zoneStart - last.dt >= 0.5)) {
-        this.zone.push({ dt: out.t - this.zoneStart, lo: iv[0], hi: iv[1], x: out.location, ...(out.locationStage ? { stage: out.locationStage } : {}) });
+      const iv = l.locationInterval;
+      const last = rec.zone.at(-1);
+      if (iv && l.location !== undefined && l.state === 'detecting' && (!last || out.t - l.tAlarm - last.dt >= 0.5)) {
+        rec.zone.push({ dt: out.t - l.tAlarm, lo: iv[0], hi: iv[1], x: l.location, ...(l.locationStage ? { stage: l.locationStage } : {}) });
       }
     }
-    if (!out.alarm && this.lastAlarm && this.leakAlarmId) {
-      this.alarms.clearAlarm(this.leakAlarmId, out.t);
-      this.leakAlarmId = null;
+    // утечки, пропавшие из выхода детектора, устранены — система поняла это сама
+    for (const [id, rec] of this.leakAlarms) {
+      if (leaks.some((l) => l.id === id)) continue;
+      this.alarms.clearAlarm(rec.alarmId, out.t, `Утечка №${id.replace(/^L/, '')} устранена — показания вернулись к норме`);
+      this.log(`утечка ${id} устранена: показания вернулись к норме`);
+      this.cards.resolve(`ev-${id}`);
+      this.leakAlarms.delete(id);
     }
+    // воронка — по последней активной утечке; нет активных — воронки нет
+    const lastActive = leaks.at(-1);
+    this.zone = lastActive ? this.leakAlarms.get(lastActive.id)?.zone ?? [] : [];
     // смена режима перекачки и отказы датчиков
     if (out.eventClass !== this.lastEventClass) {
       if (out.eventClass === 'pump-change' || out.eventClass === 'valve-change') {
@@ -521,7 +534,7 @@ class App {
     const bad = out?.unhealthySensors?.length ?? 0;
     const n = cfg?.sensors.length ?? 0;
     const sens = bad ? ['bad', `${n - bad} из ${n}`] : ['', `${n} из ${n}`];
-    const soU = out?.alarm ? ['bad', 'АВАРИЯ'] : out?.phase === 'suspect' ? ['warn', 'подозрение'] : out && out.phase !== 'warmup' ? ['', 'норма'] : ['idle', '—'];
+    const soU = out?.alarm ? ['bad', this.activeLeaks.length > 1 ? `АВАРИЯ ×${this.activeLeaks.length}` : 'АВАРИЯ'] : out?.phase === 'suspect' ? ['warn', 'подозрение'] : out && out.phase !== 'warmup' ? ['', 'норма'] : ['idle', '—'];
     const chip = (cls: string, name: string, val: string) => h('span', { class: `chip ${cls}` }, name, h('b', {}, val));
     const t = Math.max(0, this.simT);
     const clock = `${String(Math.floor(t / 3600)).padStart(2, '0')}:${String(Math.floor((t % 3600) / 60)).padStart(2, '0')}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
@@ -715,7 +728,7 @@ class App {
       alarm: !!out?.alarm,
     });
     this.renderStopwatch(visibleLeaks);
-    this.operator.update({ frame: this.lastFrame, out, inputs: this.inputs, zone: this.zone, transient: this.simT - this.lastRegimeT < 60 });
+    this.operator.update({ frame: this.lastFrame, out, inputs: this.inputs, zone: this.zone, leaks: this.activeLeaks, transient: this.simT - this.lastRegimeT < 60 });
     if (!panels) return;
     this.renderHeader();
     const j = $('#journal');

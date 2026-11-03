@@ -28,6 +28,8 @@ export class AlarmLog {
   private items: AlarmEntry[] = [];
   private seq = 0;
   private key: string | null = null;
+  /** Последнее снятие аварии — показываем в строке аварии зелёным, пока нет новых сигналов. */
+  private lastCleared: { wall: string; text: string; at: number } | null = null;
 
   constructor(
     private readonly host: HTMLElement,
@@ -39,6 +41,7 @@ export class AlarmLog {
 
   reset(): void {
     this.items = [];
+    this.lastCleared = null;
     this.render();
   }
 
@@ -68,13 +71,25 @@ export class AlarmLog {
     }
   }
 
-  clearAlarm(id: string, t: number): void {
+  /**
+   * Снять сигнал: причина ушла (система сама увидела, что показания вернулись к норме).
+   * Снятый сигнал квитируется автоматически — мигание и красная строка пропадают, запись остаётся в журнале.
+   */
+  clearAlarm(id: string, t: number, text?: string): void {
     const e = this.items.find((x) => x.id === id);
     if (e && e.active) {
       e.active = false;
       e.clearedT = t;
+      if (text) e.text = text;
+      if (!e.ackWall) e.ackWall = `${new Date().toLocaleTimeString('ru-RU')} (авто)`;
+      this.lastCleared = { wall: new Date().toLocaleTimeString('ru-RU'), text: `${e.source}: ${e.text}`, at: performance.now() };
       this.render();
     }
+  }
+
+  /** Активных аварий (приоритет «авария»). */
+  get activeAlarms(): number {
+    return this.items.filter((e) => e.active && e.priority === 'alarm').length;
   }
 
   ack(id: string): void {
@@ -161,9 +176,11 @@ export class AlarmLog {
     const top = [...this.unacknowledged].sort((a, c) => order.indexOf(a.priority) - order.indexOf(c.priority) || c.t - a.t)[0];
     const activeAlarm = this.items.find((e) => e.active && e.priority === 'alarm');
     const shown = top ?? activeAlarm;
-    b.className = `banner ${shown ? `pr-${shown.priority}${shown.ackWall ? '' : ' unack'}` : 'none'}`;
+    b.className = `banner ${shown ? `pr-${shown.priority}${shown.ackWall ? '' : ' unack'}` : this.lastCleared ? 'pr-ok' : 'none'}`;
     if (!shown) {
-      b.append(h('span', { class: 'small' }, 'Активных аварийных сигналов нет'));
+      if (this.lastCleared) {
+        b.append(h('span', { class: 'pri' }, 'НОРМА'), h('span', { class: 'mono' }, this.lastCleared.wall), h('span', { class: 'msg' }, `Авария снята: ${this.lastCleared.text}`));
+      } else b.append(h('span', { class: 'small' }, 'Активных аварийных сигналов нет'));
       return;
     }
     b.append(

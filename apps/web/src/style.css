@@ -161,6 +161,18 @@ header {
   padding: 1px 8px;
 }
 
+.banner.pr-ok {
+  background: rgba(63, 185, 80, 0.08);
+  border-bottom-color: var(--ok);
+}
+
+.banner.pr-ok .pri {
+  color: #0d1117;
+  background: var(--ok);
+  padding: 1px 8px;
+  font-weight: 700;
+}
+
 .banner.pr-info .pri {
   color: var(--accent);
 }
@@ -542,6 +554,17 @@ canvas.schematic {
 
 .card.sev-info {
   border-color: var(--accent);
+}
+
+.card.resolved {
+  border-color: var(--ok);
+  opacity: 0.75;
+}
+
+.card .resolved-note {
+  color: var(--ok);
+  font-weight: 600;
+  margin-bottom: 4px;
 }
 
 .card .action {
