@@ -314,6 +314,17 @@ export class Preprocessor {
     this.fastUntil = t + 5;
   }
 
+  /**
+   * Сдвинуть норму невязок: + вклад подтверждённой утечки (она теперь часть «нормы»),
+   * − тот же вклад, когда утечку устранили.
+   */
+  shiftBaseline(delta: Record<SensorId, number>, sign = 1): void {
+    for (const [id, d] of Object.entries(delta)) {
+      const mu = this.mu.get(id);
+      if (mu !== undefined) this.mu.set(id, mu + sign * d);
+    }
+  }
+
   /** Исключить датчик (признан неисправным). */
   exclude(id: SensorId, reason = 'отказ датчика'): void {
     this.excluded.add(id);

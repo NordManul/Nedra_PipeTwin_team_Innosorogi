@@ -13,6 +13,7 @@ import type {
   EventClass,
   LocalizationMethod,
   LocationStage,
+  ActiveLeak,
   RequirementCheck,
   SensorFrame,
   StrategySpec,
@@ -74,6 +75,24 @@ const ML_UNTIL_TRANSITS = 0.45;
 const PROFILE_MIN_FRACTION = 0.015;
 /** Расширение интервала по волне до покрытия 90%. */
 const WAVE_WIDEN = 1.5;
+/** Утечка подтверждается (вклад — в норму, детектор перевзводится) не раньше стольких пробегов волны после тревоги. */
+const CONFIRM_AFTER_TRANSITS = 1.7;
+/** Окно для вклада утечки и проверки её устранения, с. */
+const LEAK_WINDOW_SEC = 10;
+/** Отклик установился: средние за окно сдвинулись меньше max(SETTLE_Z σ, SETTLE_REL·отклонение) по всем каналам, SETTLE_HITS сравнений подряд. */
+const SETTLE_Z = 0.5;
+const SETTLE_HITS = 3;
+const SETTLE_REL = 0.15;
+/** Устранение: невязка вернулась на вклад утечки с ошибкой меньше этой доли, RECOVER_HITS проверок подряд (раз в секунду). */
+const RECOVER_TOL = 0.5;
+const RECOVER_HITS = 10;
+/**
+ * Защитное окно после подтверждения и после устранения утечки: длительность — в долях окна смены режима.
+ * После утечки расход и давления перестраиваются минутами, и остаток дрейфа тем больше, чем крупнее утечка,
+ * поэтому порог поднимается пропорционально вкладу утечки: ×(1 + LEAK_GUARD_K·|вклад в σ|), в пределах [1,5; 4].
+ */
+const LEAK_GUARD_SCALE = 2;
+const LEAK_GUARD_K = 0.2;
 
 export function requirementsOf(spec: StrategySpec): DetectorRequirements {
   if (spec.strategy === 'fusion') return mergeRequirements((spec.members ?? []).map((m) => REGISTRY[m.detector]!.requires));
@@ -128,6 +147,19 @@ export class DetectionPipeline implements Detector {
   private locStage: LocationStage = 'segment';
   /** Отрезок построен по первому изменению (волна от утечки видна на датчиках). */
   private segByArrival = false;
+  /** Подтверждённые утечки: вклад в невязки учтён в норме; ждём их устранения. */
+  private confirmed: Array<ActiveLeak & { delta: Record<string, number>; hits: number }> = [];
+  private leakSeq = 0;
+  private leakId = '';
+  private zLong = new Map<string, RollingWindow>();
+  private recoverAt = -Infinity;
+  /** Снимки средних невязок раз в LEAK_WINDOW_SEC — проверка, что отклик утечки установился. */
+  private settleSnap: { t: number; r: Record<string, number> } | null = null;
+  private settleHits = 0;
+  private leakGuardUntil = -Infinity;
+  private leakGuardFactor = 1.5;
+  /** Последняя выданная оценка расхода текущего события — её же хранит подтверждённая утечка. */
+  private lastRate: number | undefined;
   private ml: KnnLocator | null = null;
   private locatedAt = -Infinity;
   private flowImbalance = NaN;
@@ -170,6 +202,14 @@ export class DetectionPipeline implements Detector {
     this.lsq = new LsqLocator();
     this.rawHist.clear();
     this.zHist.clear();
+    this.zLong.clear();
+    this.confirmed = [];
+    this.leakSeq = 0;
+    this.leakId = '';
+    this.recoverAt = -Infinity;
+    this.settleSnap = null;
+    this.settleHits = 0;
+    this.leakGuardUntil = -Infinity;
     this.last = null;
     this.alarmed = false;
     this.eventClass = undefined;
@@ -225,10 +265,14 @@ export class DetectionPipeline implements Detector {
       w.push(v);
     }
     const nz = Math.max(1, Math.round(2 / this.sc.binSec));
+    const nl = Math.max(1, Math.round(LEAK_WINDOW_SEC / this.sc.binSec));
     for (const [id, z] of Object.entries(s.z)) {
       let w = this.zHist.get(id);
       if (!w) this.zHist.set(id, (w = new RollingWindow(nz)));
       w.push(z);
+      let wl = this.zLong.get(id);
+      if (!wl) this.zLong.set(id, (wl = new RollingWindow(nl)));
+      wl.push(z);
     }
   }
 
@@ -553,7 +597,7 @@ export class DetectionPipeline implements Detector {
 
     this.watchRegime(s.t);
     this.watchSensorFaults(s.t);
-    const guard = s.t < this.guardUntil ? this.opts.guardFactor ?? 1.5 : 1;
+    const guard = s.t < this.leakGuardUntil ? this.leakGuardFactor : s.t < this.guardUntil ? this.opts.guardFactor ?? 1.5 : 1;
     const ratio = out.threshold > 0 ? out.score / (out.threshold * guard) : 0;
     const raw = !this.opts.silent && (out.alarm ?? ratio > 1);
     let phase: DetectorPhase = 'running';
@@ -561,16 +605,15 @@ export class DetectionPipeline implements Detector {
     if (this.alarmed) {
       const canClear = s.t - this.alarmStart >= (this.opts.holdSec ?? 30);
       if (canClear && ratio < 0.5 && !out.alarm) {
-        this.alarmed = false;
-        this.location = null;
-        this.waveEst = null;
-        this.segEst = null;
-        this.profEst = null;
-        this.profCosts = null;
-        this.mlEst = null;
-        this.lsq = new LsqLocator();
-        this.stat.rearm();
-        this.prep.freeze(false);
+        // событие закончилось само: утечку устранили до подтверждения (или это была не утечка)
+        this.endEvent();
+      } else if (
+        s.t - this.alarmStart >= CONFIRM_AFTER_TRANSITS * (this.ctx.config.geometry.length / this.sc.waveSpeed) &&
+        ratio >= 1 &&
+        this.location &&
+        this.settled(s.t)
+      ) {
+        this.confirmLeak(s.t);
       }
     } else if (raw) {
       const onset = out.onset;
@@ -603,6 +646,7 @@ export class DetectionPipeline implements Detector {
       } else {
         this.alarmed = true;
         this.alarmStart = s.t;
+        this.leakId = `L${++this.leakSeq}`;
         this.arrivals.clear();
         this.segByArrival = false;
         this.segEst = this.segmentAtAlarm(s.t);
@@ -627,6 +671,10 @@ export class DetectionPipeline implements Detector {
       this.prep.freeze(false);
     }
 
+    if (!this.alarmed && this.confirmed.length) this.watchRecovery(s.t);
+    const active = this.alarmed || this.confirmed.length > 0;
+    if (active) phase = 'alarm';
+
     // порог в выходе — с учётом защиты от переходного режима (его видно на графике)
     const result: DetectorOutput = {
       t: s.t,
@@ -635,22 +683,178 @@ export class DetectionPipeline implements Detector {
       z: s.z,
       unhealthySensors: this.prep.unhealthy(),
       phase,
-      alarm: this.alarmed,
+      alarm: active,
     };
     if (s.t < this.eventUntil || this.alarmed) result.eventClass = this.eventClass;
+    else if (active) result.eventClass = 'leak';
+    const lastConfirmed = this.confirmed.at(-1);
     if (this.alarmed && this.location) {
       result.location = this.location.x;
       result.locationInterval = this.location.interval;
       result.locationStage = this.locStage;
+    } else if (!this.alarmed && lastConfirmed?.location !== undefined) {
+      result.location = lastConfirmed.location;
+      if (lastConfirmed.locationInterval) result.locationInterval = lastConfirmed.locationInterval;
+      if (lastConfirmed.locationStage) result.locationStage = lastConfirmed.locationStage;
     }
     // баланс расходов осмыслен, когда волна от утечки дошла до обоих концов (≈ один пробег)
     const flowsSettled = s.t - this.alarmStart >= this.ctx.config.geometry.length / this.sc.waveSpeed;
     const rate = out.leakRate ?? this.location?.rate ?? (flowsSettled && Number.isFinite(this.flowImbalance) ? Math.max(0, this.flowImbalance) : undefined);
+    if (this.alarmed) this.lastRate = rate ?? this.lastRate;
     if (this.alarmed && rate !== undefined) result.leakRate = rate;
+    else if (!this.alarmed && lastConfirmed?.leakRate !== undefined) result.leakRate = lastConfirmed.leakRate;
     if (this.alarmed && this.onset !== undefined) result.onsetTime = this.onset;
+    if (active) {
+      const leaks: ActiveLeak[] = this.confirmed.map(({ delta: _d, hits: _h, ...l }) => l);
+      if (this.alarmed) {
+        leaks.push({
+          id: this.leakId,
+          tAlarm: this.alarmStart,
+          state: 'detecting',
+          ...(this.location ? { location: this.location.x, locationInterval: this.location.interval, locationStage: this.locStage } : {}),
+          ...(rate !== undefined ? { leakRate: rate } : {}),
+        });
+      }
+      result.leaks = leaks;
+    }
     const contrib = this.contributions(s, out);
     if (contrib.length) result.contributions = contrib;
     return result;
+  }
+
+  /** Закончить текущее событие: сбросить оценки места, перевзвести статистику, разморозить норму. */
+  private endEvent(): void {
+    this.alarmed = false;
+    this.location = null;
+    this.waveEst = null;
+    this.segEst = null;
+    this.profEst = null;
+    this.profCosts = null;
+    this.mlEst = null;
+    this.lsq = new LsqLocator();
+    this.stat.rearm();
+    this.tracker?.clear();
+    this.prep.freeze(false);
+    this.settleSnap = null;
+    this.settleHits = 0;
+    this.lastRate = undefined;
+  }
+
+  private startLeakGuard(t: number, delta: Record<string, number>): void {
+    let n2 = 0;
+    for (const [id, d] of Object.entries(delta)) {
+      const sg = this.prep.sigmaOf(id);
+      if (sg) n2 += (d / sg) ** 2;
+    }
+    const f = Math.min(4, Math.max(1.5, 1 + LEAK_GUARD_K * Math.sqrt(n2)));
+    this.leakGuardFactor = t < this.leakGuardUntil ? Math.max(this.leakGuardFactor, f) : f;
+    this.leakGuardUntil = Math.max(this.leakGuardUntil, t + LEAK_GUARD_SCALE * this.guardSec);
+  }
+
+  /** Средние невязки (СИ) давлений и расходов за последние LEAK_WINDOW_SEC по каналам с полным окном. */
+  private longResiduals(): Record<string, number> {
+    const out: Record<string, number> = {};
+    const n = Math.round(LEAK_WINDOW_SEC / this.sc.binSec);
+    for (const [id, w] of this.zLong) {
+      // температура после крупной утечки меняется часами (нефть идёт по трубе ~9 ч) — в вклад утечки
+      // и проверку установления берём только давления и расходы
+      if (this.ctx.sensors.find((v) => v.id === id)?.kind === 'T') continue;
+      const sg = this.prep.sigmaOf(id);
+      if (sg && w.length >= n) out[id] = w.mean() * sg;
+    }
+    return out;
+  }
+
+  /**
+   * Установился ли отклик утечки: раз в LEAK_WINDOW_SEC сравниваем средние невязки с прошлым снимком.
+   * Пока после утечки перестраиваются расход и давления, её вклад ещё меняется — запомнить его рано:
+   * остаток дрейфа выглядел бы как новая утечка.
+   */
+  private settled(t: number): boolean {
+    if (this.settleSnap && t - this.settleSnap.t < LEAK_WINDOW_SEC) return this.settleHits >= SETTLE_HITS;
+    const r = this.longResiduals();
+    const prev = this.settleSnap;
+    this.settleSnap = { t, r };
+    if (!prev) return false;
+    let ok = true;
+    for (const [id, v] of Object.entries(r)) {
+      const sg = this.prep.sigmaOf(id);
+      if (!sg || prev.r[id] === undefined) continue;
+      // допуск — SETTLE_Z σ или SETTLE_REL от самого отклонения (у крупной утечки медленные колебания больше)
+      if (Math.abs(v - prev.r[id]!) > Math.max(SETTLE_Z * sg, SETTLE_REL * Math.abs(v))) ok = false;
+    }
+    this.settleHits = ok ? this.settleHits + 1 : 0;
+    return this.settleHits >= SETTLE_HITS;
+  }
+
+  /**
+   * Подтвердить утечку: место установилось, отклонение держится и больше не меняется. Её вклад в невязки
+   * уходит в норму — детектор снова готов ловить следующую, а эта остаётся в списке активных до устранения.
+   */
+  private confirmLeak(t: number): void {
+    const delta = this.longResiduals();
+    if (!Object.keys(delta).length || !this.location) return;
+    this.prep.shiftBaseline(delta);
+    const l = this.location;
+    const rate = this.lastRate ?? l.rate;
+    this.confirmed.push({
+      id: this.leakId,
+      tAlarm: this.alarmStart,
+      location: l.x,
+      locationInterval: l.interval,
+      locationStage: this.locStage,
+      ...(rate !== undefined ? { leakRate: rate } : {}),
+      state: 'confirmed',
+      delta,
+      hits: 0,
+    });
+    this.zHist.clear();
+    this.zLong.clear();
+    this.recoverAt = t;
+    this.endEvent();
+    // остаток переходного процесса после утечки — как после смены режима: порог временно выше
+    this.startLeakGuard(t, delta);
+  }
+
+  /**
+   * Устранение подтверждённой утечки: невязки сдвинулись ровно на минус её вклад (ошибка меньше
+   * RECOVER_TOL от величины вклада, в долях σ) RECOVER_HITS секунд подряд. Похожие утечки дают
+   * похожие отклики, поэтому устранение приписывается утечке с наилучшим совпадением.
+   */
+  private watchRecovery(t: number): void {
+    if (t - this.recoverAt < 1) return;
+    this.recoverAt = t;
+    const y = this.longResiduals();
+    if (!Object.keys(y).length) return;
+    let best: (typeof this.confirmed)[number] | null = null;
+    let bestErr = Infinity;
+    for (const k of this.confirmed) {
+      let err = 0;
+      let size = 0;
+      for (const [id, d] of Object.entries(k.delta)) {
+        const sg = this.prep.sigmaOf(id);
+        if (!sg || y[id] === undefined) continue;
+        err += ((y[id]! + d) / sg) ** 2;
+        size += (d / sg) ** 2;
+      }
+      const rel = size > 0 ? Math.sqrt(err / size) : Infinity;
+      if (rel < bestErr) {
+        bestErr = rel;
+        best = k;
+      }
+    }
+    for (const k of this.confirmed) if (k !== best) k.hits = 0;
+    if (!best) return;
+    best.hits = bestErr < RECOVER_TOL ? best.hits + 1 : 0;
+    if (best.hits >= RECOVER_HITS) {
+      this.prep.shiftBaseline(best.delta, -1);
+      this.confirmed = this.confirmed.filter((c) => c !== best);
+      this.zHist.clear();
+      this.zLong.clear();
+      this.stat.rearm();
+      this.tracker?.clear();
+      this.startLeakGuard(t, best.delta);
+    }
   }
 
   private setEvent(cls: EventClass, until: number): void {

@@ -24,6 +24,9 @@ export interface ExplainOptions {
 export function confidenceOf(out: DetectorOutput, cls: EventClass): number {
   // отказ датчика и смена режима подтверждаются своими правилами (монитор отказов, скачок на конце трубы)
   if (cls === 'sensor-fault' || cls === 'pump-change' || cls === 'valve-change') return 0.8;
+  // подтверждённая утечка (отклонение держалось и установилось) — статистика детектора после подтверждения
+  // перевзведена и низкая, но уверенность высокая
+  if ((cls === 'leak' || cls === 'unknown') && out.leaks?.some((l) => l.state === 'confirmed') && !out.leaks.some((l) => l.state === 'detecting')) return 0.95;
   const ratio = out.threshold && out.threshold > 0 ? out.score / out.threshold : 1;
   let c = 0.5 + 0.45 * Math.tanh(1.2 * (ratio - 0.8));
   const strong = (out.contributions ?? []).filter((x) => x.share > 0.15).length;
