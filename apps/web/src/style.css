@@ -165,14 +165,24 @@ header {
   color: var(--accent);
 }
 
-.banner.unack.pr-alarm .pri,
-tr.unack.pr-alarm .pri {
-  animation: blink 1s steps(2, start) infinite;
+/* неквитированная авария пульсирует фоном; текст всегда читаем */
+.banner.unack.pr-alarm .pri {
+  animation: pulse 1s steps(2, start) infinite;
 }
 
-@keyframes blink {
+tr.unack.pr-alarm .pri {
+  animation: pulse-text 1s steps(2, start) infinite;
+}
+
+@keyframes pulse {
   to {
-    visibility: hidden;
+    background: #7a1b1f;
+  }
+}
+
+@keyframes pulse-text {
+  to {
+    color: #ffb4ae;
   }
 }
 

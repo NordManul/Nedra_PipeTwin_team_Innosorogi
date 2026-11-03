@@ -85,6 +85,26 @@ npm run bench -- --suite files,e3,e5,noleak
 npm run bench -- --suite e4
 ```
 
+**ML-оценка места привязана к трубе и набору датчиков.** Модель `configs/models/locator.default.json` обучена на трубе по умолчанию; для другой трубы детектор сам её не применяет (зона поиска тогда строится только физикой — отрезок, волна, профиль). Переобучение на новой трубе — около 10 минут на 4 ядрах:
+
+```bash
+npx tsx scripts/train-ml-locator.ts collect --config configs/pipeline.my.json --split train --n 240 --shard 0/2
+```
+
+```bash
+npx tsx scripts/train-ml-locator.ts collect --config configs/pipeline.my.json --split train --n 240 --shard 1/2
+```
+
+```bash
+npx tsx scripts/train-ml-locator.ts collect --config configs/pipeline.my.json --split val --n 100
+```
+
+```bash
+npx tsx scripts/train-ml-locator.ts fit --config configs/pipeline.my.json --out configs/models/locator.default.json
+```
+
+`fit` подбирает веса признаков, k и квантили так, чтобы на валидации истинное место было внутри интервала в 90% случаев.
+
 ## 4. Своя метрика жюри
 
 Веса и фильтры выбора — в `configs/selection.json` (TTD, MDL, LOC, FAR, POD, CPU). Поменяйте их и перезапустите выбор, стенд можно не гонять заново:
