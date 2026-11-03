@@ -85,7 +85,7 @@ const SETTLE_HITS = 3;
 const SETTLE_REL = 0.15;
 /** Устранение: невязка вернулась на вклад утечки с ошибкой меньше этой доли, RECOVER_HITS проверок подряд (раз в секунду). */
 const RECOVER_TOL = 0.5;
-const RECOVER_HITS = 10;
+const RECOVER_HITS = 5;
 /**
  * Защитное окно после подтверждения и после устранения утечки: длительность — в долях окна смены режима.
  * После утечки расход и давления перестраиваются минутами, и остаток дрейфа тем больше, чем крупнее утечка,
@@ -93,6 +93,28 @@ const RECOVER_HITS = 10;
  */
 const LEAK_GUARD_SCALE = 2;
 const LEAK_GUARD_K = 0.2;
+/** Две одновременные утечки различаем, если они дальше друг от друга, чем SPLIT_MIN_SEP, м. */
+const SPLIT_MIN_SEP = 4000;
+/**
+ * Делим событие на две утечки, если пара объясняет отклик заметно лучше одной: выигрыш (в долях шума)
+ * больше SPLIT_GAIN, ошибка пары меньше SPLIT_RATIO от ошибки одной, каждая утечка — не меньше
+ * SPLIT_MIN_SHARE от суммы. На одиночных утечках стенда выигрыш не превышал 0,64.
+ * Интервал каждой — места, где ошибка пары не больше минимума + SPLIT_ZONE_FRAC·выигрыш.
+ */
+const SPLIT_GAIN = 1;
+const SPLIT_RATIO = 0.3;
+const SPLIT_MIN_SHARE = 0.15;
+const SPLIT_ZONE_FRAC = 0.2;
+/**
+ * Две волны: времена прихода спада давления к датчикам не объясняются одним источником (RMS больше
+ * ARR_SINGLE_TOL, с, даже если отбросить один датчик — у насоса бывает ложный «приход»), а парой источников —
+ * объясняются (RMS меньше ARR_PAIR_TOL). Зона каждой — места, где RMS пары не больше минимума + ARR_ZONE_TOL.
+ */
+const ARR_SINGLE_TOL = 1.5;
+/** Приход волны засчитываем, если спад держится столько секунд (шумовой выброс — нет). */
+const ARRIVAL_SUSTAIN_SEC = 2;
+const ARR_PAIR_TOL = 1;
+const ARR_ZONE_TOL = 0.5;
 
 export function requirementsOf(spec: StrategySpec): DetectorRequirements {
   if (spec.strategy === 'fusion') return mergeRequirements((spec.members ?? []).map((m) => REGISTRY[m.detector]!.requires));
@@ -148,11 +170,22 @@ export class DetectionPipeline implements Detector {
   /** Отрезок построен по первому изменению (волна от утечки видна на датчиках). */
   private segByArrival = false;
   /** Подтверждённые утечки: вклад в невязки учтён в норме; ждём их устранения. */
-  private confirmed: Array<ActiveLeak & { delta: Record<string, number>; hits: number }> = [];
+  private confirmed: Array<ActiveLeak & { delta: Record<string, number> }> = [];
   private leakSeq = 0;
   private leakId = '';
   private zLong = new Map<string, RollingWindow>();
   private recoverAt = -Infinity;
+  /** Набор снятых утечек, который держится в последних проверках (битовая маска по confirmed), и сколько раз подряд. */
+  private recoverMask = 0;
+  private recoverHits = 0;
+  /** Идёт снятие утечек: скачки на концах трубы не считаем сменой режима. */
+  private removalUntil = -Infinity;
+  /** Снимок невязок для проверки, что сдвиг после снятия утечек установился. */
+  private recoverSnap: { t: number; r: Record<string, number> } | null = null;
+  private recoverStable = 0;
+  /** Две волны в текущем событии (одновременные утечки) — по временам прихода. */
+  private multi: NonNullable<ReturnType<DetectionPipeline['arrivalSources']>> | null = null;
+  private multiKey = '';
   /** Снимки средних невязок раз в LEAK_WINDOW_SEC — проверка, что отклик утечки установился. */
   private settleSnap: { t: number; r: Record<string, number> } | null = null;
   private settleHits = 0;
@@ -207,6 +240,11 @@ export class DetectionPipeline implements Detector {
     this.leakSeq = 0;
     this.leakId = '';
     this.recoverAt = -Infinity;
+    this.recoverMask = 0;
+    this.recoverHits = 0;
+    this.removalUntil = -Infinity;
+    this.recoverSnap = null;
+    this.recoverStable = 0;
     this.settleSnap = null;
     this.settleHits = 0;
     this.leakGuardUntil = -Infinity;
@@ -312,7 +350,7 @@ export class DetectionPipeline implements Detector {
    * Первое значимое изменение каждого датчика после «до события»: скользящее среднее за 1 с
    * отошло от уровня до события дальше 4σ своего шума. Нужно сигнатуре: волна идёт от источника.
    */
-  private firstChanges(t: number): Record<string, FirstChange> {
+  private firstChanges(t: number, sustainSec = 0): Record<string, FirstChange> {
     const bin = this.sc.binSec;
     const nMa = Math.max(1, Math.round(1 / bin));
     const out: Record<string, FirstChange> = {};
@@ -326,9 +364,17 @@ export class DetectionPipeline implements Detector {
       if (!win || !noise) continue;
       const pre = w.meanRange(win[0], win[1]);
       const lim = (4 * noise) / Math.sqrt(nMa);
+      const nSus = Math.round(sustainSec / bin);
       for (let i = win[0] - nMa; i >= 0; i--) {
         const ma = w.meanRange(i, i + nMa);
         if (Math.abs(ma - pre) > lim && Math.sign(ma - pre) === Math.sign(d)) {
+          // устойчивость: следующие sustainSec скользящее среднее не возвращается за половину порога
+          let held = true;
+          for (let k = 1; k <= nSus && i - k >= 0 && held; k++) {
+            const m2 = w.meanRange(i - k, i - k + nMa);
+            if (!(Math.sign(m2 - pre) === Math.sign(d) && Math.abs(m2 - pre) > lim / 2)) held = false;
+          }
+          if (!held) continue;
           out[id] = { t: t - (i + nMa / 2) * bin, sign: Math.sign(d) };
           break;
         }
@@ -363,7 +409,16 @@ export class DetectionPipeline implements Detector {
     for (const e of ends) {
       const dp = this.step(e.p);
       if (Math.abs(dp) < 6) continue;
-      if (e.leakLike(dp, this.step(e.q))) continue;
+      const dq = this.step(e.q);
+      if (e.leakLike(dp, dq)) continue;
+      // снятие подтверждённых утечек: давление на конце растёт без явного манёвра (на входе расход не растёт,
+      // на выходе не падает) — это не смена режима, его распознает watchRecovery; переходный процесс от снятия
+      // идёт ещё минуты, поэтому окно держится и после восстановления
+      if ((this.confirmed.length || t < this.removalUntil) && dp > 0 && (e.cls === 'pump-change' ? dq <= 2 : dq >= -2)) {
+        this.removalUntil = Math.max(this.removalUntil, t + this.guardSec);
+        continue;
+      }
+      if (t < this.removalUntil) continue;
       // во время тревоги класс события не меняем: спад давления от самой утечки, дошедший до конца
       // трубы раньше, чем отреагировал инерционный расходомер, похож на манёвр задвижки
       if (t - this.lastRegimeT > 5 && !this.alarmed) {
@@ -436,7 +491,7 @@ export class DetectionPipeline implements Detector {
     if (s.t - this.locatedAt < 1) return;
     this.locatedAt = s.t;
     if (s.t - this.alarmStart <= 20) {
-      for (const [id, f] of Object.entries(this.firstChanges(s.t))) {
+      for (const [id, f] of Object.entries(this.firstChanges(s.t, ARRIVAL_SUSTAIN_SEC))) {
         if (f.sign < 0 && !this.arrivals.has(id) && this.ctx.sensors.some((v) => v.id === id && v.kind === 'p')) this.arrivals.set(id, f.t);
       }
     }
@@ -493,6 +548,18 @@ export class DetectionPipeline implements Detector {
       // точка внутри отрезка — лучшая доступная оценка (профиль), а не сам датчик
       const px = this.profEst?.x ?? (seg.interval[0] + seg.interval[1]) / 2;
       est = { ...seg, x: Math.min(seg.interval[1], Math.max(seg.interval[0], px)) };
+    }
+    // две волны: зона охватывает оба места, пока событие не подтверждено (тогда оно разделится на две утечки)
+    const key = [...this.arrivals.entries()].map(([id, tt]) => `${id}${tt.toFixed(1)}`).join();
+    if (key !== this.multiKey) {
+      this.multiKey = key;
+      this.multi = this.twoWaves();
+    }
+    if (this.multi) {
+      const m = this.multi;
+      est = { x: m.x1, interval: [Math.min(m.zone1[0], m.zone2[0]), Math.max(m.zone1[1], m.zone2[1])], rate: est?.rate };
+      stage = 'wave';
+      cand = est;
     }
     if (est) {
       this.location = { ...est, rate: est.rate ?? this.profEst?.rate };
@@ -705,7 +772,7 @@ export class DetectionPipeline implements Detector {
     else if (!this.alarmed && lastConfirmed?.leakRate !== undefined) result.leakRate = lastConfirmed.leakRate;
     if (this.alarmed && this.onset !== undefined) result.onsetTime = this.onset;
     if (active) {
-      const leaks: ActiveLeak[] = this.confirmed.map(({ delta: _d, hits: _h, ...l }) => l);
+      const leaks: ActiveLeak[] = this.confirmed.map(({ delta: _d, ...l }) => l);
       if (this.alarmed) {
         leaks.push({
           id: this.leakId,
@@ -738,6 +805,8 @@ export class DetectionPipeline implements Detector {
     this.settleSnap = null;
     this.settleHits = 0;
     this.lastRate = undefined;
+    this.multi = null;
+    this.multiKey = '';
   }
 
   private startLeakGuard(t: number, delta: Record<string, number>): void {
@@ -788,12 +857,253 @@ export class DetectionPipeline implements Detector {
   }
 
   /**
+   * Сколько источников объясняют времена прихода волны: один (t_i = t0 + |x_i − x|/a, допускаем один выброс)
+   * или два одновременных (t_i = t0 + min(|x_i − x1|, |x_i − x2|)/a). Нужно 4+ датчика давления с приходом.
+   */
+  private arrivalSources(): { rms1: number; x1: number; x2: number; rms2: number; zone1: [number, number]; zone2: [number, number] } | null {
+    const L = this.ctx.config.geometry.length;
+    const a = this.sc.waveSpeed;
+    const pts = this.ctx.sensors.filter((v) => v.kind === 'p' && this.arrivals.has(v.id)).map((v) => ({ x: v.x, t: this.arrivals.get(v.id)! }));
+    if (pts.length < 4) return null;
+    const step = 250;
+    const grid: number[] = [];
+    for (let x = 0; x <= L + 1e-9; x += step) grid.push(x);
+    // ложный «приход» бывает только на концах трубы (у насоса и задвижки) — отбросить разрешено лишь такой датчик:
+    // промежуточный датчик нельзя, иначе при неизвестном моменте начала одна утечка «объясняет» три датчика из четырёх
+    const atEnd = pts.map((p) => p.x <= 1 || p.x >= L - 1);
+    const rmsOf = (dist: (xi: number) => number, drop: boolean) => {
+      const d = pts.map((p) => p.t - dist(p.x) / a);
+      const fit = (keep: boolean[]) => {
+        const v = d.filter((_, k) => keep[k]);
+        const sorted = [...v].sort((u, w) => u - w);
+        const t0 = sorted[Math.floor(sorted.length / 2)]!;
+        return Math.sqrt(v.reduce((acc, x) => acc + (x - t0) ** 2, 0) / v.length);
+      };
+      let best = fit(pts.map(() => true));
+      if (drop && pts.length >= 5) for (let k = 0; k < pts.length; k++) if (atEnd[k]) best = Math.min(best, fit(pts.map((_, q) => q !== k)));
+      return best;
+    };
+    let rms1 = Infinity;
+    for (const x of grid) rms1 = Math.min(rms1, rmsOf((xi) => Math.abs(xi - x), true));
+    let best = { i: 0, j: 0, rms: Infinity };
+    const m = grid.length;
+    const pair: Float64Array = new Float64Array(m * m).fill(Infinity);
+    const minSep = Math.round(SPLIT_MIN_SEP / step);
+    for (let i = 0; i < m; i++) {
+      for (let j = i + minSep; j < m; j++) {
+        // пара — 3 параметра: отбросить датчик можно, только если останется 4+
+        const r = rmsOf((xi) => Math.min(Math.abs(xi - grid[i]!), Math.abs(xi - grid[j]!)), pts.length >= 5);
+        pair[i * m + j] = r;
+        if (r < best.rms) best = { i, j, rms: r };
+      }
+    }
+    const lim = best.rms + ARR_ZONE_TOL;
+    let lo1 = best.i;
+    let hi1 = best.i;
+    while (lo1 > 0 && pair[(lo1 - 1) * m + best.j]! <= lim) lo1--;
+    while (hi1 + 1 < best.j - minSep + 1 && pair[(hi1 + 1) * m + best.j]! <= lim) hi1++;
+    let lo2 = best.j;
+    let hi2 = best.j;
+    while (lo2 - 1 >= best.i + minSep && pair[best.i * m + lo2 - 1]! <= lim) lo2--;
+    while (hi2 < m - 1 && pair[best.i * m + hi2 + 1]! <= lim) hi2++;
+    return {
+      rms1,
+      x1: grid[best.i]!,
+      x2: grid[best.j]!,
+      rms2: best.rms,
+      zone1: [Math.max(0, grid[lo1]! - step), Math.min(L, grid[hi1]! + step)],
+      zone2: [Math.max(0, grid[lo2]! - step), Math.min(L, grid[hi2]! + step)],
+    };
+  }
+
+  /** Две волны видны: одна утечка их не объясняет, пара — объясняет. */
+  private twoWaves(): ReturnType<DetectionPipeline['arrivalSources']> {
+    const r = this.arrivalSources();
+    return r && r.rms1 > ARR_SINGLE_TOL && r.rms2 < ARR_PAIR_TOL ? r : null;
+  }
+
+  /**
+   * Одна утечка или две одновременные: подбор по откликам модели на сетке мест.
+   * y — вклад события (СИ, давления и расходы). Возвращает лучшие одиночную и парную подгонки
+   * (ошибки — в долях шума, q — м³/с) и кривые ошибки для интервалов.
+   */
+  private fitOneOrTwo(y: Record<string, number>): {
+    one: { j: number; q: number; cost: number };
+    two: { i: number; j: number; qi: number; qj: number; cost: number } | null;
+    /** |y|² — полный отклик события в долях шума. */
+    yy: number;
+    xs: number[];
+    costI: number[];
+    costJ: number[];
+  } | null {
+    const twin = this.ctx.twin;
+    if (!twin) return null;
+    if (!this.lsq.ready) this.lsq.build(twin, this.ctx.config.geometry.length, this.prep.nominalFlow);
+    const ids = Object.keys(y);
+    const sig = (id: string) => this.prep.sigmaOf(id);
+    const sh = this.lsq.shapes(ids, sig);
+    if (!sh) return null;
+    const yv = ids.map((id) => y[id]! / (sig(id) ?? 1));
+    const dot = (a: number[], b: number[]) => a.reduce((acc, v, k) => acc + v * b[k]!, 0);
+    const yy = dot(yv, yv);
+    const H = sh.h;
+    const n = H.length;
+    const hh = H.map((h) => dot(h, h));
+    const hy = H.map((h) => dot(h, yv));
+    let one = { j: 0, q: 0, cost: Infinity };
+    for (let j = 0; j < n; j++) {
+      const q = hh[j]! > 0 ? Math.max(0, hy[j]! / hh[j]!) : 0;
+      const cost = yy - 2 * q * hy[j]! + q * q * hh[j]!;
+      if (cost < one.cost) one = { j, q, cost };
+    }
+    const L = this.ctx.config.geometry.length;
+    const minSep = Math.max(2, Math.round((SPLIT_MIN_SEP * n) / L));
+    let two: { i: number; j: number; qi: number; qj: number; cost: number } | null = null;
+    const pairCost = (i: number, j: number) => {
+      const a = hh[i]!;
+      const b = dot(H[i]!, H[j]!);
+      const c = hh[j]!;
+      const det = a * c - b * b;
+      if (!(det > 1e-12)) return null;
+      const qi = (c * hy[i]! - b * hy[j]!) / det;
+      const qj = (a * hy[j]! - b * hy[i]!) / det;
+      if (qi <= 0 || qj <= 0) return null;
+      return { qi, qj, cost: yy - 2 * (qi * hy[i]! + qj * hy[j]!) + qi * qi * a + 2 * qi * qj * b + qj * qj * c };
+    };
+    for (let i = 0; i < n; i++) {
+      for (let j = i + minSep; j < n; j++) {
+        const r = pairCost(i, j);
+        if (r && (!two || r.cost < two.cost)) two = { i, j, ...r };
+      }
+    }
+    const costI: number[] = [];
+    const costJ: number[] = [];
+    if (two) {
+      for (let k = 0; k < n; k++) {
+        costI.push(Math.abs(k - two.j) >= minSep ? pairCost(k, two.j)?.cost ?? Infinity : Infinity);
+        costJ.push(Math.abs(k - two.i) >= minSep ? pairCost(two.i, k)?.cost ?? Infinity : Infinity);
+      }
+    }
+    return { one, two, yy, xs: sh.xs, costI, costJ };
+  }
+
+  /**
+   * Две одновременные утечки: пара объясняет отклик заметно лучше одной. Событие делится на две подтверждённые
+   * утечки со своими местами, интервалами, расходами и вкладами (вклад второй — остаток, чтобы сумма была точной).
+   */
+  private trySplit(t: number, delta: Record<string, number>, fit: NonNullable<ReturnType<DetectionPipeline['fitOneOrTwo']>>): boolean {
+    const two = fit.two!;
+    const gain = fit.one.cost - two.cost;
+    if (!(gain > SPLIT_GAIN && two.cost < SPLIT_RATIO * fit.one.cost && Math.min(two.qi, two.qj) >= SPLIT_MIN_SHARE * (two.qi + two.qj))) return false;
+    const L = this.ctx.config.geometry.length;
+    const half = L / fit.xs.length / 2;
+    const zone = (curve: number[], at: number): [number, number] => {
+      const lim = two.cost + SPLIT_ZONE_FRAC * gain;
+      let lo = at;
+      let hi = at;
+      while (lo > 0 && curve[lo - 1]! <= lim) lo--;
+      while (hi < curve.length - 1 && curve[hi + 1]! <= lim) hi++;
+      return [Math.max(0, fit.xs[lo]! - half), Math.min(L, fit.xs[hi]! + half)];
+    };
+    const ids = Object.keys(delta);
+    const sh = this.lsq.shapes(ids, (id) => this.prep.sigmaOf(id))!;
+    const di: Record<string, number> = {};
+    const dj: Record<string, number> = {};
+    ids.forEach((id, k) => {
+      const sg = this.prep.sigmaOf(id) ?? 0;
+      di[id] = two.qi * sh.h[two.i]![k]! * sg;
+      dj[id] = delta[id]! - di[id]!;
+    });
+    this.prep.shiftBaseline(delta);
+    const tAlarm = this.alarmStart;
+    const first = { id: this.leakId, x: fit.xs[two.i]!, iv: zone(fit.costI, two.i), q: two.qi, d: di };
+    const second = { id: `L${++this.leakSeq}`, x: fit.xs[two.j]!, iv: zone(fit.costJ, two.j), q: two.qj, d: dj };
+    for (const k of [first, second]) {
+      this.confirmed.push({ id: k.id, tAlarm, location: k.x, locationInterval: k.iv, locationStage: 'profile', leakRate: k.q, state: 'confirmed', delta: k.d });
+    }
+    this.zHist.clear();
+    this.zLong.clear();
+    this.recoverAt = t;
+    this.endEvent();
+    this.startLeakGuard(t, delta);
+    return true;
+  }
+
+  /**
+   * Разделить событие на две утечки в заданных местах: расходы — подбор пары по откликам модели (оба > 0),
+   * вклады — q·отклик для первой и остаток для второй (сумма точная).
+   */
+  private splitAt(t: number, delta: Record<string, number>, xs: [number, number], zones: Array<[number, number]>, stage: LocationStage): boolean {
+    const twin = this.ctx.twin;
+    if (!twin) return false;
+    if (!this.lsq.ready) this.lsq.build(twin, this.ctx.config.geometry.length, this.prep.nominalFlow);
+    const ids = Object.keys(delta);
+    const sh = this.lsq.shapes(ids, (id) => this.prep.sigmaOf(id));
+    if (!sh) return false;
+    const near = (x: number) => sh.xs.reduce((b, v, k) => (Math.abs(v - x) < Math.abs(sh.xs[b]! - x) ? k : b), 0);
+    const [i, j] = [near(xs[0]), near(xs[1])];
+    if (i === j) return false;
+    const yv = ids.map((id) => delta[id]! / (this.prep.sigmaOf(id) ?? 1));
+    const dot = (a: number[], b: number[]) => a.reduce((acc, v, k) => acc + v * b[k]!, 0);
+    const hi = sh.h[i]!;
+    const hj = sh.h[j]!;
+    const A = dot(hi, hi);
+    const B = dot(hi, hj);
+    const C = dot(hj, hj);
+    const det = A * C - B * B;
+    if (!(det > 1e-12)) return false;
+    let qi = (C * dot(hi, yv) - B * dot(hj, yv)) / det;
+    let qj = (A * dot(hj, yv) - B * dot(hi, yv)) / det;
+    // если подбор пары отдал одной утечке отрицательный расход — делим поровну по откликам (обе волны видны)
+    if (!(qi > 0 && qj > 0)) {
+      const q = Math.max(0, dot(hi, yv) + dot(hj, yv)) / Math.max(1e-12, A + 2 * B + C);
+      qi = q;
+      qj = q;
+    }
+    const di: Record<string, number> = {};
+    const dj: Record<string, number> = {};
+    ids.forEach((id, k) => {
+      di[id] = qi * hi[k]! * (this.prep.sigmaOf(id) ?? 0);
+      dj[id] = delta[id]! - di[id]!;
+    });
+    this.prep.shiftBaseline(delta);
+    const tAlarm = this.alarmStart;
+    const parts = [
+      { id: this.leakId, x: xs[0], iv: zones[0]!, q: qi, d: di },
+      { id: `L${++this.leakSeq}`, x: xs[1], iv: zones[1]!, q: qj, d: dj },
+    ];
+    for (const k of parts) this.confirmed.push({ id: k.id, tAlarm, location: k.x, locationInterval: k.iv, locationStage: stage, leakRate: k.q, state: 'confirmed', delta: k.d });
+    this.zHist.clear();
+    this.zLong.clear();
+    this.recoverAt = t;
+    this.endEvent();
+    this.startLeakGuard(t, delta);
+    return true;
+  }
+
+  /** Диагностика последнего подбора «одна или две» (для стенда и калибровки). */
+  lastSplit: { cost1: number; cost2: number; yy: number; x1: number; x2?: number; xb?: number; q1?: number; q2?: number; qOne: number } | null = null;
+
+  /**
    * Подтвердить утечку: место установилось, отклонение держится и больше не меняется. Её вклад в невязки
    * уходит в норму — детектор снова готов ловить следующую, а эта остаётся в списке активных до устранения.
    */
   private confirmLeak(t: number): void {
     const delta = this.longResiduals();
     if (!Object.keys(delta).length || !this.location) return;
+    const fit = this.fitOneOrTwo(delta);
+    if (fit) {
+      this.lastSplit = {
+        cost1: fit.one.cost,
+        cost2: fit.two?.cost ?? Infinity,
+        yy: fit.yy,
+        x1: fit.xs[fit.one.j]!,
+        qOne: fit.one.q,
+        ...(fit.two ? { x2: fit.xs[fit.two.i]!, xb: fit.xs[fit.two.j]!, q1: fit.two.qi, q2: fit.two.qj } : {}),
+      };
+    }
+    if (this.multi && this.splitAt(t, delta, [this.multi.x1, this.multi.x2], [this.multi.zone1, this.multi.zone2], 'wave')) return;
+    if (fit?.two && this.trySplit(t, delta, fit)) return;
     this.prep.shiftBaseline(delta);
     const l = this.location;
     const rate = this.lastRate ?? l.rate;
@@ -806,7 +1116,6 @@ export class DetectionPipeline implements Detector {
       ...(rate !== undefined ? { leakRate: rate } : {}),
       state: 'confirmed',
       delta,
-      hits: 0,
     });
     this.zHist.clear();
     this.zLong.clear();
@@ -817,44 +1126,101 @@ export class DetectionPipeline implements Detector {
   }
 
   /**
-   * Устранение подтверждённой утечки: невязки сдвинулись ровно на минус её вклад (ошибка меньше
-   * RECOVER_TOL от величины вклада, в долях σ) RECOVER_HITS секунд подряд. Похожие утечки дают
-   * похожие отклики, поэтому устранение приписывается утечке с наилучшим совпадением.
+   * Устранение утечек — одной, нескольких или всех сразу. Сдвиг невязок y (относительно нормы, в которую
+   * входят вклады подтверждённых утечек) объясняем набором снятых утечек R: y ≈ −Σ_{k∈R} Δ_k.
+   * Перебираем все наборы (до 2^10), берём лучший; принимаем, если он объясняет сдвиг с ошибкой меньше
+   * RECOVER_TOL от величины Σ_R Δ и держится RECOVER_HITS проверок подряд. Сняли все — норма возвращается
+   * к исходной полностью.
    */
   private watchRecovery(t: number): void {
     if (t - this.recoverAt < 1) return;
     this.recoverAt = t;
     const y = this.longResiduals();
-    if (!Object.keys(y).length) return;
-    let best: (typeof this.confirmed)[number] | null = null;
-    let bestErr = Infinity;
-    for (const k of this.confirmed) {
+    const ids = Object.keys(y);
+    if (!ids.length) return;
+    const sg = ids.map((id) => this.prep.sigmaOf(id) ?? 0);
+    const yv = ids.map((id, i) => (sg[i]! > 0 ? y[id]! / sg[i]! : 0));
+    const dv = this.confirmed.map((k) => ids.map((id, i) => (sg[i]! > 0 ? (k.delta[id] ?? 0) / sg[i]! : 0)));
+    const n = this.confirmed.length;
+    const evalSet = (mask: number) => {
       let err = 0;
       let size = 0;
-      for (const [id, d] of Object.entries(k.delta)) {
-        const sg = this.prep.sigmaOf(id);
-        if (!sg || y[id] === undefined) continue;
-        err += ((y[id]! + d) / sg) ** 2;
-        size += (d / sg) ** 2;
+      for (let i = 0; i < ids.length; i++) {
+        let sum = 0;
+        for (let k = 0; k < n; k++) if (mask & (1 << k)) sum += dv[k]![i]!;
+        err += (yv[i]! + sum) ** 2;
+        size += sum * sum;
       }
-      const rel = size > 0 ? Math.sqrt(err / size) : Infinity;
-      if (rel < bestErr) {
-        bestErr = rel;
-        best = k;
+      return { err: Math.sqrt(err), size: Math.sqrt(size) };
+    };
+    let bestMask = 0;
+    let best = { err: Infinity, size: 0 };
+    if (n <= 10) {
+      for (let mask = 1; mask < 1 << n; mask++) {
+        const r = evalSet(mask);
+        if (r.err < best.err) {
+          best = r;
+          bestMask = mask;
+        }
       }
+    } else {
+      // много утечек: жадно добавляем ту, что сильнее всего уменьшает ошибку
+      let mask = 0;
+      let cur = evalSet(0).err;
+      for (;;) {
+        let pick = -1;
+        let pickErr = cur;
+        for (let k = 0; k < n; k++) {
+          if (mask & (1 << k)) continue;
+          const e = evalSet(mask | (1 << k)).err;
+          if (e < pickErr) {
+            pickErr = e;
+            pick = k;
+          }
+        }
+        if (pick < 0) break;
+        mask |= 1 << pick;
+        cur = pickErr;
+      }
+      bestMask = mask;
+      best = mask ? evalSet(mask) : best;
     }
-    for (const k of this.confirmed) if (k !== best) k.hits = 0;
-    if (!best) return;
-    best.hits = bestErr < RECOVER_TOL ? best.hits + 1 : 0;
-    if (best.hits >= RECOVER_HITS) {
-      this.prep.shiftBaseline(best.delta, -1);
-      this.confirmed = this.confirmed.filter((c) => c !== best);
-      this.zHist.clear();
-      this.zLong.clear();
-      this.stat.rearm();
-      this.tracker?.clear();
-      this.startLeakGuard(t, best.delta);
+    // сдвиг должен установиться: пока идёт переходный процесс от снятия дальней утечки, набор ещё неполон
+    if (!this.recoverSnap || t - this.recoverSnap.t >= LEAK_WINDOW_SEC) {
+      const prev = this.recoverSnap;
+      this.recoverSnap = { t, r: y };
+      let stable = !!prev;
+      if (prev) {
+        for (const id of ids) {
+          const sgi = this.prep.sigmaOf(id);
+          if (!sgi || prev.r[id] === undefined) continue;
+          if (Math.abs(y[id]! - prev.r[id]!) > Math.max(SETTLE_Z * sgi, SETTLE_REL * Math.abs(y[id]!))) stable = false;
+        }
+      }
+      this.recoverStable = stable ? this.recoverStable + 1 : 0;
     }
+    const ok = bestMask !== 0 && best.size > 0 && best.err < RECOVER_TOL * best.size && this.recoverStable >= 2;
+    this.recoverHits = ok && bestMask === this.recoverMask ? this.recoverHits + 1 : ok ? 1 : 0;
+    this.recoverMask = ok ? bestMask : 0;
+    if (this.recoverHits < RECOVER_HITS) return;
+    const removed = this.confirmed.filter((_, k) => bestMask & (1 << k));
+    const total: Record<string, number> = {};
+    for (const k of removed) for (const [id, d] of Object.entries(k.delta)) total[id] = (total[id] ?? 0) + d;
+    this.prep.shiftBaseline(total, -1);
+    // пока утечки были активны, норма медленно подстраивалась под мелкий дрейф — он не входит в их вклады;
+    // сдвиг уже установился, поэтому коротко перенастраиваем норму по текущим замерам (как после смены режима)
+    this.prep.rebaseline(t);
+    this.confirmed = this.confirmed.filter((_, k) => !(bestMask & (1 << k)));
+    this.recoverHits = 0;
+    this.recoverMask = 0;
+    this.recoverSnap = null;
+    this.recoverStable = 0;
+    this.removalUntil = Math.max(this.removalUntil, t + this.guardSec);
+    this.zHist.clear();
+    this.zLong.clear();
+    this.stat.rearm();
+    this.tracker?.clear();
+    this.startLeakGuard(t, total);
   }
 
   private setEvent(cls: EventClass, until: number): void {

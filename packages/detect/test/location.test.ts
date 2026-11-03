@@ -127,7 +127,7 @@ describe('несколько утечек подряд и их устранен�
         { t: 90, type: 'leak', id: 'A', x: 31000, sizePct: 5, rampSec: 0 },
         { t: 450, type: 'leak', id: 'B', x: 12000, sizePct: 5, rampSec: 0 },
       ],
-      durationSec: 1000,
+      durationSec: 1150,
     });
     const twin = createTwin(cfg);
     const spec = readJson<Parameters<typeof createDetector>[0]>('configs/strategy.selected.json');
@@ -139,7 +139,7 @@ describe('несколько утечек подряд и их устранен�
     while (!src.done) {
       for (const f of src.step(0.1)) {
         if (Math.abs(f.t - 700) < 0.05) src.removeLeak('A');
-        if (Math.abs(f.t - 850) < 0.05) src.removeLeak('B');
+        if (Math.abs(f.t - 900) < 0.05) src.removeLeak('B');
         const o = det.update(f, twin.predict(f));
         for (const l of o.leaks ?? []) {
           const e = seen.get(l.id) ?? { states: new Set<string>(), lo: NaN, hi: NaN };
@@ -160,7 +160,59 @@ describe('несколько утечек подряд и их устранен�
     expect(seen.get('L2')!.lo).toBeLessThanOrEqual(12000);
     expect(seen.get('L2')!.hi).toBeGreaterThanOrEqual(12000);
     // после устранения A остаётся одна B; после устранения B — норма
-    expect(timeline.find((x) => x.t >= 800)!.ids).toEqual(['L2']);
-    expect(activeAt(950)).toBe(false);
+    expect(timeline.find((x) => x.t >= 880)!.ids).toEqual(['L2']);
+    expect(activeAt(1100)).toBe(false);
+  });
+});
+
+describe('одновременные утечки и снятие всех сразу', () => {
+  function runScenario(events: Array<{ t: number; id: string; x: number; size: number }>, removals: Record<number, string[]>, dur: number) {
+    const cfg = defaultConfig();
+    const truth = structuredClone(cfg);
+    truth.geometry.roughness = 8e-5;
+    const src = new SimulatedSource(truth, { seed: 4, events: events.map((e) => ({ t: e.t, type: 'leak' as const, id: e.id, x: e.x, sizePct: e.size, rampSec: 0 })), durationSec: dur });
+    const twin = createTwin(cfg);
+    const spec = readJson<Parameters<typeof createDetector>[0]>('configs/strategy.selected.json');
+    const det = createDetector({ ...spec, warmupSec: 60 });
+    det.reset(ctxFor(cfg, twin));
+    const timeline: Array<{ t: number; leaks: DetectorOutput['leaks'] }> = [];
+    while (!src.done) {
+      for (const f of src.step(0.1)) {
+        for (const [tt, ids] of Object.entries(removals)) if (Math.abs(f.t - Number(tt)) < 0.05) for (const id of ids) src.removeLeak(id);
+        const o = det.update(f, twin.predict(f));
+        timeline.push({ t: f.t, leaks: o.leaks ?? [] });
+      }
+    }
+    return (t: number) => timeline.find((x) => x.t >= t)!.leaks ?? [];
+  }
+
+  it('две одновременные утечки (км 31 и 12) делятся на две с верными зонами; снятые по одной — норма', () => {
+    const at = runScenario([{ t: 90, id: 'A', x: 31000, size: 5 }, { t: 90, id: 'B', x: 12000, size: 5 }], { 700: ['A'], 900: ['B'] }, 1150);
+    const both = at(400);
+    expect(both.length).toBe(2);
+    const zones = both.map((l) => l.locationInterval!).sort((a, b) => a[0] - b[0]);
+    expect(zones[0]![0]).toBeLessThanOrEqual(12000);
+    expect(zones[0]![1]).toBeGreaterThanOrEqual(12000);
+    expect(zones[1]![0]).toBeLessThanOrEqual(31000);
+    expect(zones[1]![1]).toBeGreaterThanOrEqual(31000);
+    const left = at(880);
+    expect(left.length).toBe(1);
+    expect(left[0]!.locationInterval![0]).toBeLessThanOrEqual(12000);
+    expect(left[0]!.locationInterval![1]).toBeGreaterThanOrEqual(12000);
+    expect(at(1140).length).toBe(0);
+  });
+
+  it('три утечки подряд, снятые все сразу, — система сама возвращается к норме', () => {
+    const at = runScenario(
+      [
+        { t: 90, id: 'A', x: 31000, size: 5 },
+        { t: 450, id: 'B', x: 12000, size: 5 },
+        { t: 810, id: 'C', x: 44000, size: 10 },
+      ],
+      { 1200: ['A', 'B', 'C'] },
+      1450,
+    );
+    expect(at(1150).length).toBe(3);
+    expect(at(1440).length).toBe(0);
   });
 });

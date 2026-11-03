@@ -102,6 +102,20 @@ export class LsqLocator {
     return { x: Math.min(L, Math.max(0, x)), interval: [Math.max(0, this.xs[lo]! - half), Math.min(L, this.xs[hi]! + half)], rate: rates[best] };
   }
 
+  /**
+   * Отклики кандидатов на утечку 1 м³/с, нормированные на шум: для подбора «одна утечка или две»
+   * (одновременные утечки). ids — каналы в нужном порядке.
+   */
+  shapes(ids: string[], sigma: (id: string) => number | undefined): { xs: number[]; h: number[][] } | null {
+    if (!this.ready) return null;
+    const h = this.resp.map((r) => ids.map((id) => {
+      const sg = sigma(id);
+      const v = r[id];
+      return sg && v !== undefined ? v / this.qTest / sg : 0;
+    }));
+    return { xs: this.xs, h };
+  }
+
   locate(dr: SensorValues, sigma: (id: string) => number | undefined, L: number, delta = 4): LocationEstimate | null {
     const c = this.costs(dr, sigma);
     return c ? this.fromCosts(c.costs, c.rates, L, delta) : null;
