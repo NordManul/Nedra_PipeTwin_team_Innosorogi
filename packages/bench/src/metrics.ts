@@ -17,7 +17,7 @@ export interface StrategyMetrics {
   v_loss_med: number;
 }
 
-export function computeMetrics(rows: RunRecord[], sel: Pick<SelectionFile, 'ttdMinLeakFraction' | 'mdlPod'>): StrategyMetrics[] {
+export function computeMetrics(rows: RunRecord[], sel: Pick<SelectionFile, 'ttdMinLeakFraction' | 'mdlPod' | 'locMinLeakFraction'>): StrategyMetrics[] {
   const by = new Map<string, RunRecord[]>();
   for (const r of rows) by.set(r.strategy_id, [...(by.get(r.strategy_id) ?? []), r]);
   const out: StrategyMetrics[] = [];
@@ -33,7 +33,7 @@ export function computeMetrics(rows: RunRecord[], sel: Pick<SelectionFile, 'ttdM
     const mdl = sizes.find((s) => sizes.filter((x) => x >= s).every((x) => pod[String(x)]! >= sel.mdlPod)) ?? Infinity;
     const fa = rs.reduce((a, r) => a + r.false_alarms, 0);
     const obs = rs.reduce((a, r) => a + (r.noleak_s ?? 0), 0);
-    const locs = leaks.filter((r) => r.loc_err !== null).map((r) => r.loc_err!);
+    const locs = leaks.filter((r) => r.loc_err !== null && (r.leak_frac ?? 0) >= (sel.locMinLeakFraction ?? 0)).map((r) => r.loc_err!);
     const vl = leaks.filter((r) => r.v_loss !== null && r.t_alarm !== null).map((r) => r.v_loss!);
     out.push({
       strategy_id: id,

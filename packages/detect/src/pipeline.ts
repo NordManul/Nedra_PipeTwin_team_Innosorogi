@@ -70,6 +70,8 @@ const PROFILE_DELTA = 0.4;
 const PROFILE_AFTER_TRANSITS = 1.7;
 /** ML-оценка — только в первые 0,45 пробега (≈ 20 с на 50 км): позже без волны её покрытие падает. */
 const ML_UNTIL_TRANSITS = 0.45;
+/** Профиль — только при оценке утечки не меньше 1,5% расхода: у меньших на стенде он уверенно ошибался. */
+const PROFILE_MIN_FRACTION = 0.015;
 /** Расширение интервала по волне до покрытия 90%. */
 const WAVE_WIDEN = 1.5;
 
@@ -124,6 +126,8 @@ export class DetectionPipeline implements Detector {
   private profCosts: number[] | null = null;
   private mlEst: LocationEstimate | null = null;
   private locStage: LocationStage = 'segment';
+  /** Отрезок построен по первому изменению (волна от утечки видна на датчиках). */
+  private segByArrival = false;
   private ml: KnnLocator | null = null;
   private locatedAt = -Infinity;
   private flowImbalance = NaN;
@@ -422,10 +426,10 @@ export class DetectionPipeline implements Detector {
     } else if (statEst && method === 'wave-timing') {
       cand = statEst;
       stage = 'wave';
-    } else if (this.profEst && since >= PROFILE_AFTER_TRANSITS * transit) {
+    } else if (this.profEst && since >= PROFILE_AFTER_TRANSITS * transit && this.profileTrusted()) {
       cand = this.profEst;
       stage = 'profile';
-    } else if (this.mlEst && since < ML_UNTIL_TRANSITS * transit) {
+    } else if (this.mlEst && since < ML_UNTIL_TRANSITS * transit && this.segByArrival) {
       cand = this.mlEst;
       stage = 'ml';
     }
@@ -434,8 +438,13 @@ export class DetectionPipeline implements Detector {
     if (cand && seg) {
       const lo = Math.max(cand.interval[0], seg.interval[0]);
       const hi = Math.min(cand.interval[1], seg.interval[1]);
-      // противоречие с отрезком — доверяем более точной стадии целиком
+      // противоречие с отрезком — доверяем отрезку: на стенде уточняющие стадии ошибались чаще
+      // (например, волна при плавно нарастающей утечке)
       if (lo <= hi) est = { x: Math.min(hi, Math.max(lo, cand.x)), interval: [lo, hi], rate: cand.rate };
+      else {
+        est = { ...seg, x: Math.min(seg.interval[1], Math.max(seg.interval[0], this.profEst?.x ?? cand.x)) };
+        cand = null;
+      }
     } else if (!cand && seg) {
       // точка внутри отрезка — лучшая доступная оценка (профиль), а не сам датчик
       const px = this.profEst?.x ?? (seg.interval[0] + seg.interval[1]) / 2;
@@ -445,6 +454,13 @@ export class DetectionPipeline implements Detector {
       this.location = { ...est, rate: est.rate ?? this.profEst?.rate };
       this.locStage = cand ? stage : 'segment';
     }
+  }
+
+  /** Профилю можно верить, если оценённая им утечка не меньше PROFILE_MIN_FRACTION расхода. */
+  private profileTrusted(): boolean {
+    const q = this.profEst?.rate;
+    const nominal = this.prep.nominalFlow;
+    return q !== undefined && nominal > 0 && q / nominal >= PROFILE_MIN_FRACTION;
   }
 
   /**
@@ -480,6 +496,10 @@ export class DetectionPipeline implements Detector {
     }
     if (k < 0) return { x: L / 2, interval: [0, L] };
     const margin = SEGMENT_MARGIN_SEC * this.sc.waveSpeed;
+    // без первого изменения (малая утечка в шуме) датчик с наибольшим спадом указывает место ненадёжно:
+    // на стенде отрезок вокруг него промахивался в 30–60% случаев — честнее сказать «весь участок»
+    this.segByArrival = Number.isFinite(best);
+    if (!this.segByArrival) return { x: ps[k]!.x, interval: [0, L] };
     const lo = k === 0 ? 0 : Math.max(0, (ps[k - 1]!.x + ps[k]!.x) / 2 - margin);
     const hi = k === ps.length - 1 ? L : Math.min(L, (ps[k]!.x + ps[k + 1]!.x) / 2 + margin);
     return { x: Math.min(hi, Math.max(lo, ps[k]!.x)), interval: [lo, hi] };
@@ -584,6 +604,7 @@ export class DetectionPipeline implements Detector {
         this.alarmed = true;
         this.alarmStart = s.t;
         this.arrivals.clear();
+        this.segByArrival = false;
         this.segEst = this.segmentAtAlarm(s.t);
         this.onset = onset;
         this.holdUntil = NaN;

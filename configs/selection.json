@@ -3,6 +3,7 @@
   "schemaVersion": 1,
   "weights": { "ttd_med": 0.35, "ttd_p95": 0.15, "mdl": 0.25, "loc_med": 0.15, "far": 0.10 },
   "ttdMinLeakFraction": 0.02,
+  "locMinLeakFraction": 0.05,
   "filters": {
     "farPerDayMax": 2,
     "podMin": 0.9,
