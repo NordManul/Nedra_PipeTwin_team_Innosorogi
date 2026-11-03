@@ -147,6 +147,8 @@ class App {
     this.resetZone();
     this.faultAlarms.clear();
     this.lastEventClass = undefined;
+    this.lastRegimeT = -Infinity;
+    this.lastFrameWall = 0;
     this.sim = new Worker(new URL('./engine/sim.worker.ts', import.meta.url), { type: 'module' });
     this.sim.onmessage = (e: MessageEvent<SimMessage>) => this.onSim(e.data);
     const cfg = this.resolved.config;
