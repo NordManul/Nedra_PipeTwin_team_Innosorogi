@@ -71,7 +71,13 @@ export function buildEventCard(out: DetectorOutput, opts: ExplainOptions): Event
   const errKm = out.locationInterval ? (out.locationInterval[1] - out.locationInterval[0]) / 2000 : undefined;
   const text = rule
     ? renderTemplate(rule.text, {
-        place: out.location !== undefined ? `у км ${fmt(out.location / 1000, 1)}${errKm !== undefined ? ` ± ${fmt(errKm, 1)}` : ''}` : 'место уточняется',
+        place: out.locationInterval
+          ? `на участке км ${fmt(out.locationInterval[0] / 1000, 1)}–${fmt(out.locationInterval[1] / 1000, 1)}`
+          : out.location !== undefined
+            ? `у км ${fmt(out.location / 1000, 1)}`
+            : 'место уточняется',
+        x_lo_km: fmt(out.locationInterval ? out.locationInterval[0] / 1000 : undefined, 1),
+        x_hi_km: fmt(out.locationInterval ? out.locationInterval[1] / 1000 : undefined, 1),
         x_km: fmt(out.location !== undefined ? out.location / 1000 : undefined, 1),
         x_err_km: fmt(errKm, 1),
         rate_m3h: fmt(rate !== undefined ? rate * 3600 : undefined, 1),
@@ -89,7 +95,9 @@ export function buildEventCard(out: DetectorOutput, opts: ExplainOptions): Event
     contributions,
     action: { ruleId: rule?.id ?? 'none', severity: rule?.severity ?? 'warning', text },
   };
-  if (out.location !== undefined) card.location = { x: out.location, ...(out.locationInterval ? { interval: out.locationInterval } : {}) };
+  if (out.location !== undefined) {
+    card.location = { x: out.location, ...(out.locationInterval ? { interval: out.locationInterval } : {}), ...(out.locationStage ? { stage: out.locationStage } : {}) };
+  }
   if (rate !== undefined) card.leakRate = rate;
   if (fraction !== undefined) card.leakFraction = fraction;
   if (vLoss !== undefined) {
