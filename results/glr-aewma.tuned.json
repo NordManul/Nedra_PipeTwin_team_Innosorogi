@@ -1,0 +1,157 @@
+{
+ "generatedAt": "2026-11-03T17:34:33.487Z",
+ "quick": false,
+ "targetFarPerDay": 1,
+ "strategies": [
+  {
+   "id": "glr:minSec=0.5;maxSec=30;h=12.66",
+   "base": "glr:minSec=0.5;maxSec=30;h=10",
+   "scale": 1.266,
+   "alarmsByScale": {
+    "1": 9,
+    "3": 0,
+    "4": 0,
+    "0.5": 427,
+    "0.65": 342,
+    "0.8": 64,
+    "0.9": 20,
+    "1.15": 0,
+    "1.35": 0,
+    "1.7": 0,
+    "2.2": 0
+   },
+   "observedHours": 16,
+   "spec": {
+    "strategy": "glr",
+    "params": {
+     "minSec": 0.5,
+     "maxSec": 30,
+     "h": 12.66
+    },
+    "signatureFilter": true,
+    "warmupSec": 60,
+    "localization": "lsq"
+   }
+  },
+  {
+   "id": "glr:minSec=1;maxSec=120;h=14.18",
+   "base": "glr:minSec=1;maxSec=120;h=10",
+   "scale": 1.418,
+   "alarmsByScale": {
+    "1": 12,
+    "3": 0,
+    "4": 0,
+    "0.5": 249,
+    "0.65": 167,
+    "0.8": 67,
+    "0.9": 31,
+    "1.15": 4,
+    "1.35": 0,
+    "1.7": 0,
+    "2.2": 0
+   },
+   "observedHours": 16,
+   "spec": {
+    "strategy": "glr",
+    "params": {
+     "minSec": 1,
+     "maxSec": 120,
+     "h": 14.18
+    },
+    "signatureFilter": true,
+    "warmupSec": 60,
+    "localization": "lsq"
+   }
+  },
+  {
+   "id": "aewma:tauSec=3;kH=4;L=9.289",
+   "base": "aewma:tauSec=3;kH=4;L=7",
+   "scale": 1.327,
+   "alarmsByScale": {
+    "1": 15,
+    "3": 0,
+    "4": 0,
+    "0.5": 692,
+    "0.65": 350,
+    "0.8": 96,
+    "0.9": 40,
+    "1.15": 0,
+    "1.35": 0,
+    "1.7": 0,
+    "2.2": 0
+   },
+   "observedHours": 16,
+   "spec": {
+    "strategy": "aewma",
+    "params": {
+     "tauSec": 3,
+     "kH": 4,
+     "L": 9.289
+    },
+    "signatureFilter": true,
+    "warmupSec": 60,
+    "localization": "lsq"
+   }
+  },
+  {
+   "id": "aewma:tauSec=3;kH=3;L=12.49",
+   "base": "aewma:tauSec=3;kH=3;L=7",
+   "scale": 1.785,
+   "alarmsByScale": {
+    "1": 61,
+    "3": 0,
+    "4": 0,
+    "0.5": 865,
+    "0.65": 516,
+    "0.8": 207,
+    "0.9": 112,
+    "1.15": 19,
+    "1.35": 3,
+    "1.7": 0,
+    "2.2": 0
+   },
+   "observedHours": 16,
+   "spec": {
+    "strategy": "aewma",
+    "params": {
+     "tauSec": 3,
+     "kH": 3,
+     "L": 12.49
+    },
+    "signatureFilter": true,
+    "warmupSec": 60,
+    "localization": "lsq"
+   }
+  },
+  {
+   "id": "aewma:tauSec=5;kH=4;L=10.87",
+   "base": "aewma:tauSec=5;kH=4;L=9",
+   "scale": 1.208,
+   "alarmsByScale": {
+    "1": 3,
+    "3": 0,
+    "4": 0,
+    "0.5": 430,
+    "0.65": 106,
+    "0.8": 27,
+    "0.9": 17,
+    "1.15": 0,
+    "1.35": 0,
+    "1.7": 0,
+    "2.2": 0
+   },
+   "observedHours": 16,
+   "spec": {
+    "strategy": "aewma",
+    "params": {
+     "tauSec": 5,
+     "kH": 4,
+     "L": 10.87
+    },
+    "signatureFilter": true,
+    "warmupSec": 60,
+    "localization": "lsq"
+   }
+  }
+ ]
+}

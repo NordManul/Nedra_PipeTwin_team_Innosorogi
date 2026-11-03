@@ -6,6 +6,8 @@
 | --- | --- |
 | `e7-localization.json` | E7: один детектор (CUSUM) с тремя методами места L1 `hgl`, L2 `lsq`, L3 `wave-timing` |
 | `fusion-threshold-ewma.json` | H-B3: слияние порога и EWMA против CUSUM, порога и EWMA по отдельности |
+| `glr-aewma.json` | H-B16, H-B17: GLR (D10) и адаптивный EWMA (D11) в нескольких вариантах, свои пороги |
+| `fusion-cusum-aewma.json` | H-B18: «ИЛИ» CUSUM и адаптивного EWMA |
 | `cusum-only.json` | H-B10, H-B11: CUSUM на конфигах с фильтром граничных давлений — EMA (`configs/pipeline.filter{1,2}.json`) и Калман (`configs/pipeline.kalman{1,2,5}.json`) |
 
 ```bash

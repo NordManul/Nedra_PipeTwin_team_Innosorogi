@@ -6,7 +6,7 @@
  */
 import type { DetectorRequirements } from '@pipetwin/core/contracts';
 import type { DetectorMeta } from './types';
-import { CusumStat, EwmaStat, ThresholdStat } from './detectors/residual';
+import { AewmaStat, CusumStat, EwmaStat, GlrStat, ThresholdStat } from './detectors/residual';
 import { MassBalanceStat } from './detectors/mass-balance';
 import { NpwStat } from './detectors/npw';
 import { KalmanStat } from './detectors/kalman';
@@ -47,6 +47,24 @@ export const REGISTRY: Record<string, DetectorMeta> = {
     thresholdParam: 'h',
     simplicity: 3,
     create: (_sc, p) => new CusumStat(p),
+  },
+  glr: {
+    code: 'D10',
+    title: 'GLR: сдвиг неизвестной величины',
+    requires: { sensors: [pressures()], needsTwin: true },
+    defaults: { minSec: 0.5, maxSec: 30, h: 12.7 },
+    thresholdParam: 'h',
+    simplicity: 3.5,
+    create: (sc, p) => new GlrStat(sc, p),
+  },
+  aewma: {
+    code: 'D11',
+    title: 'Адаптивный EWMA (Хьюбер)',
+    requires: { sensors: [pressures()], needsTwin: true },
+    defaults: { tauSec: 3, kH: 4, L: 9.3 },
+    thresholdParam: 'L',
+    simplicity: 2.5,
+    create: (sc, p) => new AewmaStat(sc, p),
   },
   'mass-balance': {
     code: 'D4',

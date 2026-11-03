@@ -1,0 +1,7 @@
+[
+  { "strategy": "glr", "params": { "minSec": 0.5, "maxSec": 30, "h": 10 }, "signatureFilter": true, "warmupSec": 60, "localization": "lsq" },
+  { "strategy": "glr", "params": { "minSec": 1, "maxSec": 120, "h": 10 }, "signatureFilter": true, "warmupSec": 60, "localization": "lsq" },
+  { "strategy": "aewma", "params": { "tauSec": 3, "kH": 4, "L": 7 }, "signatureFilter": true, "warmupSec": 60, "localization": "lsq" },
+  { "strategy": "aewma", "params": { "tauSec": 3, "kH": 3, "L": 7 }, "signatureFilter": true, "warmupSec": 60, "localization": "lsq" },
+  { "strategy": "aewma", "params": { "tauSec": 5, "kH": 4, "L": 9 }, "signatureFilter": true, "warmupSec": 60, "localization": "lsq" }
+]
