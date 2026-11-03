@@ -437,11 +437,13 @@ export class DetectionPipeline implements Detector {
       // противоречие с отрезком — доверяем более точной стадии целиком
       if (lo <= hi) est = { x: Math.min(hi, Math.max(lo, cand.x)), interval: [lo, hi], rate: cand.rate };
     } else if (!cand && seg) {
-      est = seg;
+      // точка внутри отрезка — лучшая доступная оценка (профиль), а не сам датчик
+      const px = this.profEst?.x ?? (seg.interval[0] + seg.interval[1]) / 2;
+      est = { ...seg, x: Math.min(seg.interval[1], Math.max(seg.interval[0], px)) };
     }
     if (est) {
       this.location = { ...est, rate: est.rate ?? this.profEst?.rate };
-      this.locStage = est === seg ? 'segment' : stage;
+      this.locStage = cand ? stage : 'segment';
     }
   }
 
