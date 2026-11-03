@@ -26,12 +26,14 @@ import defaultPipeline from '../../../configs/pipeline.default.json';
 import actionsFile from '../../../configs/actions.json';
 import selectedStrategy from '../../../configs/strategy.selected.json';
 import type { DetectCommand, DetectMessage, LeakInfo, SimCommand, SimMessage } from './engine/protocol';
+import { AlarmLog } from './ui/alarms';
 import { CardPanel } from './ui/card';
 import { Charts } from './ui/charts';
 import { $, clear, download, h } from './ui/dom';
 import { display, fmt, km, UNIT } from './ui/format';
 import { Importer } from './ui/importer';
 import { ParamsPanel } from './ui/params';
+import { OperatorView, STAGE_NAMES, type ZoneSample } from './ui/operator';
 import { Schematic } from './ui/schematic';
 import { SeriesStore } from './ui/store';
 
@@ -78,8 +80,21 @@ class App {
   private presenting = false;
   /** Таблицы и журнал перестраиваются реже графиков (4 раза/с) — DOM дороже canvas. */
   private panelsAt = 0;
+  /** История зоны поиска текущей (последней) тревоги — для воронки. */
+  private zone: ZoneSample[] = [];
+  private zoneStart = NaN;
+  private leakAlarmId: string | null = null;
+  private leakAlarmText = '';
+  private faultAlarms = new Map<string, string>();
+  private lastEventClass: string | undefined;
+  private lastRegimeT = -Infinity;
+  /** Когда (по часам браузера) пришёл последний кадр — для индикатора связи. */
+  private lastFrameWall = 0;
+  private trainer = true;
 
   private schematic!: Schematic;
+  private operator!: OperatorView;
+  private alarms!: AlarmLog;
   private charts!: Charts;
   private cards!: CardPanel;
   private params!: ParamsPanel;
@@ -128,6 +143,12 @@ class App {
     this.sessionEvents = [];
     this.detectorLog = [];
     this.cards.reset();
+    this.alarms.reset();
+    this.resetZone();
+    this.faultAlarms.clear();
+    this.lastEventClass = undefined;
+    this.lastRegimeT = -Infinity;
+    this.lastFrameWall = 0;
     this.sim = new Worker(new URL('./engine/sim.worker.ts', import.meta.url), { type: 'module' });
     this.sim.onmessage = (e: MessageEvent<SimMessage>) => this.onSim(e.data);
     const cfg = this.resolved.config;
@@ -138,6 +159,7 @@ class App {
       this.sendSim({ type: 'init', config: truth, seed: this.seed, speed: this.speed });
     }
     this.schematic.setConfig(cfg);
+    this.operator.setConfig(cfg);
     this.params.render(this.input, this.resolved.params, this.resolved.warnings, this.resolved.calibrationCandidates);
     this.log(`конфиг «${cfg.meta.name}»: ${(cfg.geometry.length / 1000).toFixed(1)} км, Ø${(cfg.geometry.diameter * 1000).toFixed(0)} мм, ${cfg.sensors.length} датчиков`);
     this.renderControls();
@@ -160,6 +182,7 @@ class App {
     this.sendSim({ type: 'seek', t });
     this.store.clear();
     this.cards.reset();
+    this.resetZone();
     this.startDetector();
     this.log(`перемотка записи на ${fmt(t, 0)} с — детектор начинает с прогрева`);
   }
@@ -169,6 +192,21 @@ class App {
     document.body.classList.toggle('present', this.presenting);
     this.charts.resize();
     this.schematic.draw();
+    this.operator.draw();
+  }
+
+  private toggleTrainer(): void {
+    this.trainer = !this.trainer;
+    document.body.classList.toggle('no-trainer', !this.trainer);
+    this.charts.resize();
+    this.renderHeader();
+  }
+
+  private resetZone(): void {
+    this.zone = [];
+    this.zoneStart = NaN;
+    this.leakAlarmId = null;
+    this.leakAlarmText = '';
   }
 
   private sendSim(c: SimCommand): void {
@@ -197,6 +235,7 @@ class App {
       // единственное, что получает детектор, — кадры датчиков
       this.pending.push(...m.frames);
       this.sendDet({ type: 'frames', frames: m.frames });
+      this.lastFrameWall = performance.now();
       const f = m.frames.at(-1)!;
       this.lastFrame = f;
       if (f.t - this.lastDetLogT >= 1) {
@@ -266,12 +305,60 @@ class App {
       this.alarmTimes.push(out.t);
       this.log(`ТРЕВОГА: ${out.eventClass === 'leak' ? 'утечка' : out.eventClass ?? ''}${out.location !== undefined ? ` у км ${fmt(km(out.location), 1)}` : ''}`);
     }
-    if (out.eventClass && out.eventClass !== this.outs?.eventClass && !out.alarm) this.log(`событие: ${out.eventClass}`);
+    this.trackAlarms(out);
     this.lastAlarm = out.alarm;
     this.outs = out;
     if (!this.chartsBuilt && this.store.t.length > 2) {
       this.charts.build(cfg, this.inputs);
       this.chartsBuilt = true;
+    }
+  }
+
+  /** Сигналы оператору (журнал, строка аварии) и история зоны поиска — из выхода детектора. */
+  private trackAlarms(out: DetectorOutput): void {
+    const zoneText = () => {
+      const iv = out.locationInterval;
+      if (!iv) return 'место уточняется';
+      return `зона поиска км ${fmt(km(iv[0]), 1)}–${fmt(km(iv[1]), 1)}${out.locationStage ? ` (${STAGE_NAMES[out.locationStage]})` : ''}`;
+    };
+    if (out.alarm && !this.lastAlarm) {
+      this.zone = [];
+      this.zoneStart = out.t;
+      const what = out.eventClass === 'unknown' ? 'Отклонение от модели неясной природы' : 'Признаки утечки';
+      this.leakAlarmText = `${what}: ${zoneText()}`;
+      this.leakAlarmId = this.alarms.raise('alarm', out.t, 'СОУ, участок', this.leakAlarmText);
+    }
+    if (out.alarm && this.leakAlarmId) {
+      const text = `${out.eventClass === 'unknown' ? 'Отклонение от модели неясной природы' : 'Признаки утечки'}: ${zoneText()}${out.leakRate !== undefined ? `, ≈ ${fmt(out.leakRate * 3600, 0)} м³/ч` : ''}`;
+      if (text !== this.leakAlarmText) {
+        this.leakAlarmText = text;
+        this.alarms.update(this.leakAlarmId, text);
+      }
+      const iv = out.locationInterval;
+      const last = this.zone.at(-1);
+      if (iv && out.location !== undefined && (!last || out.t - this.zoneStart - last.dt >= 0.5)) {
+        this.zone.push({ dt: out.t - this.zoneStart, lo: iv[0], hi: iv[1], x: out.location, ...(out.locationStage ? { stage: out.locationStage } : {}) });
+      }
+    }
+    if (!out.alarm && this.lastAlarm && this.leakAlarmId) {
+      this.alarms.clearAlarm(this.leakAlarmId, out.t);
+      this.leakAlarmId = null;
+    }
+    // смена режима перекачки и отказы датчиков
+    if (out.eventClass !== this.lastEventClass) {
+      if (out.eventClass === 'pump-change' || out.eventClass === 'valve-change') {
+        this.lastRegimeT = out.t;
+        this.alarms.note(out.t, 'Режим', out.eventClass === 'pump-change' ? 'Смена режима насоса — порог временно повышен' : 'Смена положения задвижки — порог временно повышен');
+      }
+      this.lastEventClass = out.eventClass;
+    }
+    const bad = new Set(out.unhealthySensors ?? []);
+    for (const id of bad) if (!this.faultAlarms.has(id)) this.faultAlarms.set(id, this.alarms.raise('warning', out.t, `Датчик ${id}`, 'Недостоверные показания — датчик исключён из расчёта'));
+    for (const [id, aid] of this.faultAlarms) {
+      if (!bad.has(id)) {
+        this.alarms.clearAlarm(aid, out.t);
+        this.faultAlarms.delete(id);
+      }
     }
   }
 
@@ -359,32 +446,30 @@ class App {
   private layout(): void {
     const root = $('#app');
     root.append(
-      h(
-        'header',
-        {},
-        h('div', { class: 'brand' }, h('strong', {}, 'PipeTwin'), h('span', { class: 'muted' }, ' · цифровой двойник участка трубопровода')),
-        h(
-          'div',
-          { class: 'row' },
-          h('div', { id: 'status', class: 'status' }),
-          h('button', { class: 'small', title: 'Крупный экран для проектора (клавиша P)', onclick: () => this.togglePresentation() }, 'Презентация'),
-        ),
-      ),
+      h('header', { id: 'header' }),
+      h('div', { id: 'banner', class: 'banner none' }),
       h(
         'main',
         {},
-        h('aside', { id: 'controls', class: 'col-left' }),
+        h('aside', { id: 'controls', class: 'col-left trainer-only' }),
         h(
           'section',
           { class: 'col-center' },
-          h('div', { id: 'stopwatch', class: 'stopwatch' }),
+          h('div', { class: 'panel' }, h('h3', {}, 'Мнемосхема участка — экран оператора СОУ'), h('div', { id: 'operator' })),
+          h(
+            'div',
+            { class: 'panel trainer trainer-only' },
+            h('div', { class: 'trainer-head' }, 'Реальная труба — правда симулятора, оператор её не видит'),
+            h('div', { id: 'schematic' }),
+            h('div', { id: 'stopwatch', class: 'stopwatch' }),
+          ),
           h('div', { id: 'timeline', class: 'panel timeline', hidden: true }),
-          h('div', { id: 'schematic', class: 'panel' }),
           h('div', { id: 'charts', class: 'charts' }),
         ),
         h(
           'aside',
           { class: 'col-right' },
+          h('div', { id: 'alarms', class: 'panel' }),
           h('div', { id: 'card', class: 'panel' }),
           h('div', { id: 'sensors', class: 'panel' }),
           h('div', { id: 'journal', class: 'panel' }),
@@ -393,9 +478,14 @@ class App {
       ),
       h('div', { id: 'toasts' }),
     );
+    this.operator = new OperatorView($('#operator'));
+    this.alarms = new AlarmLog($('#alarms'), $('#banner'), (e) => this.log(`квитирован сигнал: ${e.source} — ${e.text}`));
+    this.renderHeader();
     this.schematic = new Schematic($('#schematic'), (x) => this.leakAt(x));
     document.addEventListener('keydown', (e) => {
-      if ((e.key === 'p' || e.key === 'з') && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) this.togglePresentation();
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === 'p' || e.key === 'з') this.togglePresentation();
+      if (e.key === 't' || e.key === 'е') this.toggleTrainer();
     });
     this.charts = new Charts($('#charts'));
     this.cards = new CardPanel($('#card'), (c: EventCard) => this.log(`оператор принял карточку ${c.id}: ${c.action.text}`));
@@ -416,17 +506,71 @@ class App {
     });
   }
 
+  /** Шапка: участок, состояние подсистем, модельные часы, переключатели. */
+  private renderHeader(): void {
+    const el = document.getElementById('header');
+    if (!el) return;
+    clear(el);
+    const cfg = this.resolved?.config;
+    const out = this.outs;
+    const age = (performance.now() - this.lastFrameWall) / 1000;
+    const link = this.paused ? ['idle', 'пауза'] : this.lastFrameWall && age < 3 ? ['', 'норма'] : ['bad', 'нет данных'];
+    const model = !out || out.phase === 'warmup' ? ['warn', 'прогрев'] : ['', 'в работе'];
+    const transient = out?.eventClass === 'pump-change' || out?.eventClass === 'valve-change' || this.simT - this.lastRegimeT < 60;
+    const regime = transient ? ['warn', 'переходный'] : ['', 'стационарный'];
+    const bad = out?.unhealthySensors?.length ?? 0;
+    const n = cfg?.sensors.length ?? 0;
+    const sens = bad ? ['bad', `${n - bad} из ${n}`] : ['', `${n} из ${n}`];
+    const soU = out?.alarm ? ['bad', 'АВАРИЯ'] : out?.phase === 'suspect' ? ['warn', 'подозрение'] : out && out.phase !== 'warmup' ? ['', 'норма'] : ['idle', '—'];
+    const chip = (cls: string, name: string, val: string) => h('span', { class: `chip ${cls}` }, name, h('b', {}, val));
+    const t = Math.max(0, this.simT);
+    const clock = `${String(Math.floor(t / 3600)).padStart(2, '0')}:${String(Math.floor((t % 3600) / 60)).padStart(2, '0')}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+    el.append(
+      h(
+        'div',
+        { class: 'brand' },
+        h('strong', {}, 'PipeTwin · СОУ'),
+        h('span', { class: 'site' }, cfg ? `Участок 0–${fmt(km(cfg.geometry.length), 0)} км · Ø${fmt(cfg.geometry.diameter * 1000, 0)} мм · ${this.mode === 'sim' ? 'симулятор' : 'запись'}` : ''),
+      ),
+      h(
+        'div',
+        { class: 'chips' },
+        chip(soU[0]!, 'СОУ', soU[1]!),
+        chip(link[0]!, 'Связь', link[1]!),
+        chip(model[0]!, 'Модель', model[1]!),
+        chip(regime[0]!, 'Режим', regime[1]!),
+        chip(sens[0]!, 'Датчики', sens[1]!),
+        h('span', { class: 'chip idle' }, 'Детектор', h('b', {}, this.strategy.strategy.toUpperCase())),
+      ),
+      h(
+        'div',
+        { class: 'row' },
+        h('span', { class: 'clock', title: 'модельное время' }, clock),
+        h('button', { class: `small${this.trainer ? ' primary' : ''}`, title: 'Показать/скрыть тренажёр (клавиша T)', onclick: () => this.toggleTrainer() }, this.trainer ? 'Тренажёр: вкл' : 'Тренажёр: выкл'),
+        h('button', { class: 'small', title: 'Крупный экран для проектора (клавиша P)', onclick: () => this.togglePresentation() }, 'Презентация'),
+      ),
+    );
+  }
+
   private renderControls(): void {
     const host = $('#controls');
     clear(host);
     const cfg = this.resolved.config;
     const btn = (label: string, on: () => void, cls = '') => h('button', { class: cls, onclick: on }, label);
+    host.append(
+      h(
+        'div',
+        { class: 'panel trainer' },
+        h('div', { class: 'trainer-head' }, 'Панель инструктора'),
+        h('p', { class: 'small muted' }, 'Здесь задаются утечки, режимы и отказы. Оператор видит только мнемосхему, сигналы и тренды. Клавиша T скрывает тренажёр.'),
+      ),
+    );
 
     // источник и время
     host.append(
       h(
         'div',
-        { class: 'panel' },
+        { class: 'panel trainer' },
         h('h3', {}, 'Время и источник'),
         h('div', { class: 'row' }, ...[1, 5, 20].map((v) => btn(`×${v}`, () => this.setSpeed(v), this.speed === v ? 'primary' : '')), btn(this.paused ? 'Продолжить' : 'Пауза', () => this.togglePause())),
         h('div', { class: 'row' }, btn('Перезапуск', () => { this.chartsBuilt = false; if (this.mode === 'replay') this.mode = 'sim'; this.loadConfig(this.input); }), btn('Новый seed', () => { this.seed++; this.chartsBuilt = false; this.loadConfig(this.input); })),
@@ -457,7 +601,7 @@ class App {
     host.append(
       h(
         'div',
-        { class: 'panel' },
+        { class: 'panel trainer' },
         h('h3', {}, 'Утечка'),
         h('p', { class: 'small' }, 'Клик по трубе на схеме ставит утечку в эту точку.'),
         h('label', { class: 'field' }, h('span', { class: 'small' }, 'Размер, % расхода'), size, sizeLbl),
@@ -493,7 +637,7 @@ class App {
     host.append(
       h(
         'div',
-        { class: 'panel' },
+        { class: 'panel trainer' },
         h('h3', {}, 'Режим перекачки (без утечки)'),
         h('div', { class: 'row' }, ...[-10, -5, 5, 10].map((p) => btn(`Насос ${p > 0 ? '+' : ''}${p}%`, () => this.control({ type: 'pump', changePct: p, rampSec: 3 }), 'small'))),
         h('label', { class: 'field' }, h('span', { class: 'small' }, 'Задвижка на выходе, % открытия'), valve),
@@ -514,7 +658,7 @@ class App {
     host.append(
       h(
         'div',
-        { class: 'panel' },
+        { class: 'panel trainer' },
         h('h3', {}, 'Стратегия детекции'),
         sel,
         h('p', { class: 'small muted' }, `Сейчас: ${this.strategy.strategy} (${Object.entries(this.strategy.params).map(([k, v]) => `${k}=${v}`).join(', ')}), место: ${this.strategy.localization}`),
@@ -525,10 +669,10 @@ class App {
     // импорт и экспорт
     const imp = h('div');
     host.append(
-      h('div', { class: 'panel' }, h('h3', {}, 'Запись с датчиков (replay)'), imp),
+      h('div', { class: 'panel trainer' }, h('h3', {}, 'Запись с датчиков (replay)'), imp),
       h(
         'div',
-        { class: 'panel' },
+        { class: 'panel trainer' },
         h('h3', {}, 'Экспорт'),
         h(
           'div',
@@ -571,15 +715,21 @@ class App {
       alarm: !!out?.alarm,
     });
     this.renderStopwatch(visibleLeaks);
-    $('#status').textContent = `${this.mode === 'sim' ? 'симуляция' : 'запись'} · t = ${fmt(this.simT, 1)} с · ×${this.speed}${this.paused ? ' · пауза' : ''} · ${out?.phase === 'warmup' ? 'прогрев (оценка шума)' : out?.alarm ? 'ТРЕВОГА' : 'норма'}`;
+    this.operator.update({ frame: this.lastFrame, out, inputs: this.inputs, zone: this.zone, transient: this.simT - this.lastRegimeT < 60 });
     if (!panels) return;
+    this.renderHeader();
     const j = $('#journal');
     clear(j);
     j.append(
-      h('h3', {}, 'Журнал'),
-      h('p', { class: 'small muted' }, 'Детектор работает в отдельном воркере и получает только кадры датчиков. Последние сообщения к нему:'),
-      h('pre', { class: 'log' }, this.detectorLog.slice(0, 5).join('\n')),
+      h('h3', {}, 'Системный журнал'),
       h('pre', { class: 'log' }, this.journal.slice(0, 30).join('\n')),
+      h(
+        'details',
+        { class: 'sub' },
+        h('summary', {}, 'Что получает детектор (граница честности)'),
+        h('p', { class: 'small muted' }, 'Детектор работает в отдельном воркере и получает только кадры датчиков:'),
+        h('pre', { class: 'log' }, this.detectorLog.slice(0, 5).join('\n')),
+      ),
     );
   }
 
@@ -627,10 +777,12 @@ class App {
     const bad = new Set(this.outs?.unhealthySensors ?? []);
     const rows = cfg.sensors.map((s) => {
       const v = f?.values[s.id];
-      const role = this.inputs.includes(s.id) ? 'граница twin' : z[s.id] !== undefined ? `z = ${fmt(z[s.id], 1)}` : '';
+      const zz = z[s.id];
+      const dev = zz !== undefined && Math.abs(zz) > 3;
+      const role = this.inputs.includes(s.id) ? 'вход модели' : zz !== undefined ? `${dev ? 'отклонение' : 'норма'} · z ${fmt(zz, 1)}` : '';
       return h(
         'tr',
-        { class: bad.has(s.id) ? 'bad' : '' },
+        { class: bad.has(s.id) ? 'bad' : dev ? 'dev' : '' },
         h('td', {}, s.id),
         h('td', { class: 'mono' }, fmt(km(s.x), 1)),
         h('td', { class: 'mono' }, v !== undefined ? `${fmt(display(s.kind, v, cfg.ambientPressure), s.kind === 'p' ? 3 : 1)} ${UNIT[s.kind]}` : '—'),
@@ -639,7 +791,7 @@ class App {
     });
     el.append(
       h('h3', {}, 'Датчики'),
-      h('table', { class: 'params' }, h('tr', {}, h('th', {}, 'id'), h('th', {}, 'км'), h('th', {}, 'значение'), h('th', {}, 'состояние')), ...rows),
+      h('table', { class: 'params' }, h('tr', {}, h('th', {}, 'Тег'), h('th', {}, 'км'), h('th', {}, 'Значение'), h('th', {}, 'Состояние')), ...rows),
     );
   }
 

@@ -74,7 +74,7 @@ def metrics_for(g: pd.DataFrame, sel: dict) -> Metrics:
     lp = leaks[leaks.leak_frac >= sel["filters"]["podLeakFraction"]]
     pod_large = float(lp.t_alarm.notna().mean()) if len(lp) else math.nan
     regime = g[g.scenario_id.str.startswith("e5-") & (g.leak_present == 0)]
-    locs = detected.loc_err.dropna()
+    locs = detected[detected.leak_frac >= sel.get("locMinLeakFraction", 0)].loc_err.dropna()
     return Metrics(
         strategy_id=str(g.strategy_id.iloc[0]),
         ttd_med=ttd_med,

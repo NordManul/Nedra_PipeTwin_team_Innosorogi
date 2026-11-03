@@ -3,7 +3,7 @@
  * кадры подаются всем детекторам. Результат — строки runs.csv (контракт RunRecord).
  * Правда (утечки) берётся из источника и в детектор не попадает.
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   createTwin,
@@ -19,7 +19,7 @@ import {
   type StrategySpec,
 } from '@pipetwin/core';
 import { createScenarioSource } from '@pipetwin/core/plant';
-import { createDetector } from '@pipetwin/detect';
+import { createDetector, type KnnLocatorModel } from '@pipetwin/detect';
 import { framesFromFile, ReplaySource } from '@pipetwin/io';
 import { overlayLeaks } from './overlay';
 import { strategyId } from './candidates';
@@ -29,6 +29,15 @@ export const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 
 export function readJsonFromRoot(path: string): unknown {
   return JSON.parse(readFileSync(resolve(ROOT, path), 'utf8'));
+}
+
+/** ML-модель места (configs/models/locator.default.json), если обучена; детектор сам проверит, что она к этой трубе. */
+let mlCache: KnnLocatorModel | null | undefined;
+function loadMlLocator(): KnnLocatorModel | null {
+  if (mlCache !== undefined) return mlCache;
+  const f = resolve(ROOT, 'configs/models/locator.default.json');
+  mlCache = existsSync(f) ? (JSON.parse(readFileSync(f, 'utf8')) as KnnLocatorModel) : null;
+  return mlCache;
 }
 
 export interface RunOptions {
@@ -64,6 +73,7 @@ interface DetState {
   falseAlarms: number;
   tAlarm: number | null;
   atWindowEnd: DetectorOutput | null;
+  atAlarm: DetectorOutput | null;
 }
 
 export async function runScenario(sc: Scenario, strategies: StrategySpec[], opts: RunOptions = {}): Promise<ScenarioResult> {
@@ -79,15 +89,16 @@ export async function runScenario(sc: Scenario, strategies: StrategySpec[], opts
   const tLeak = leakEvent?.t ?? null;
   const excluded: ScenarioResult['excluded'] = [];
   const dets: DetState[] = [];
+  const mlLocator = loadMlLocator();
   for (const spec of strategies) {
-    const det = createDetector({ ...spec, warmupSec: warmup });
+    const det = createDetector({ ...spec, warmupSec: warmup }, mlLocator ? { mlLocator } : {});
     const check = det.check(ctx);
     if (!check.ok) {
       excluded.push({ scenario_id: sc.id, strategy_id: strategyId(spec), reasons: check.reasons });
       continue;
     }
     det.reset(ctx);
-    dets.push({ id: strategyId(spec), det, ms: 0, was: false, falseAlarms: 0, tAlarm: null, atWindowEnd: null });
+    dets.push({ id: strategyId(spec), det, ms: 0, was: false, falseAlarms: 0, tAlarm: null, atWindowEnd: null, atAlarm: null });
   }
 
   let twinMs = 0;
@@ -124,6 +135,7 @@ export async function runScenario(sc: Scenario, strategies: StrategySpec[], opts
           if (tLeak === null || f.t < tLeak) d.falseAlarms++;
           else if (d.tAlarm === null && f.t - tLeak <= maxTtd) {
             d.tAlarm = out.t;
+            d.atAlarm = out;
             vLossAt.set(d, vLossAcc);
           }
         }
@@ -162,6 +174,11 @@ export async function runScenario(sc: Scenario, strategies: StrategySpec[], opts
       split: sc.split === 'demo' ? 'demo' : sc.split ?? null,
       noleak_s: Math.max(0, (tLeak ?? Math.min(end, source.t)) - warmup),
       ttd_min_phys: x !== undefined ? minDetectionTime(cfg, x, a) : null,
+      loc_lo: d.atWindowEnd?.locationInterval?.[0] ?? null,
+      loc_hi: d.atWindowEnd?.locationInterval?.[1] ?? null,
+      loc_stage: d.atWindowEnd?.locationStage ?? null,
+      loc0_lo: d.atAlarm?.locationInterval?.[0] ?? null,
+      loc0_hi: d.atAlarm?.locationInterval?.[1] ?? null,
     };
   });
   return { rows, excluded };

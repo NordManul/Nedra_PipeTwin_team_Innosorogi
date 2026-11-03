@@ -22,6 +22,7 @@
       }
     },
     "ttdMinLeakFraction": { "type": "number", "minimum": 0, "maximum": 1 },
+    "locMinLeakFraction": { "type": "number", "minimum": 0, "maximum": 1, "description": "Медиана ошибки места — по утечкам не меньше этой доли (по умолчанию 0)" },
     "filters": {
       "type": "object",
       "required": ["farPerDayMax", "podMin", "podLeakFraction", "regimeFalseAlarmsMax", "cpuMsPerTickMax"],

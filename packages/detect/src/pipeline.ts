@@ -12,6 +12,7 @@ import type {
   DetectorRequirements,
   EventClass,
   LocalizationMethod,
+  LocationStage,
   RequirementCheck,
   SensorFrame,
   StrategySpec,
@@ -27,6 +28,7 @@ import { checkRequirements, mergeRequirements } from './requirements';
 import { classifyEvent, type FirstChange } from './signature';
 import { SUM, type PreparedSample, type StatContext, type Statistic, type StatOut } from './types';
 import { ewmaAlpha, RollingWindow } from './util';
+import { KnnLocator, type KnnLocatorModel, type LocatorFeatures } from './ml/knn-locator';
 
 export interface PipelineOptions {
   preprocess?: Partial<PreprocessOptions>;
@@ -47,6 +49,8 @@ export interface PipelineOptions {
   holdSec?: number;
   /** Не выдавать тревог (для autotune: нужна только статистика). */
   silent?: boolean;
+  /** ML-модель места (configs/models/locator.*.json); без неё стадия ml не используется. */
+  mlLocator?: KnnLocatorModel;
 }
 
 /** Подавлять тревогу как смену режима только при уверенной сигнатуре. */
@@ -58,6 +62,18 @@ const QUIET_Z = 4;
 const HISTORY_SEC = 40;
 /** Порог «активного» канала: среднее z за 2 с, нормированное на √n. */
 const ACTIVE_Z = 3;
+/** Запас «ячейки» датчика на неточность момента первого изменения, в секундах пробега волны. */
+const SEGMENT_MARGIN_SEC = 1;
+/** Порог интервала профиля: стоимость ≤ минимум + PROFILE_DELTA (подобран на стенде под покрытие 90%). */
+const PROFILE_DELTA = 0.4;
+/** Профиль — после затухания волн: через 1,7 пробега волны после тревоги (≈ 75 с на 50 км). */
+const PROFILE_AFTER_TRANSITS = 1.7;
+/** ML-оценка — только в первые 0,45 пробега (≈ 20 с на 50 км): позже без волны её покрытие падает. */
+const ML_UNTIL_TRANSITS = 0.45;
+/** Профиль — только при оценке утечки не меньше 1,5% расхода: у меньших на стенде он уверенно ошибался. */
+const PROFILE_MIN_FRACTION = 0.015;
+/** Расширение интервала по волне до покрытия 90%. */
+const WAVE_WIDEN = 1.5;
 
 export function requirementsOf(spec: StrategySpec): DetectorRequirements {
   if (spec.strategy === 'fusion') return mergeRequirements((spec.members ?? []).map((m) => REGISTRY[m.detector]!.requires));
@@ -102,6 +118,17 @@ export class DetectionPipeline implements Detector {
   private faultHoldSec = 5;
   private location: LocationEstimate | null = null;
   private waveEst: LocationEstimate | null = null;
+  /** Стадии места: отрезок по первому изменению (сразу при тревоге), волна, профиль — для диагностики и стенда. */
+  private segEst: LocationEstimate | null = null;
+  /** Моменты прихода волны (первого спада давления) по датчикам — запоминаются в первые 20 с тревоги. */
+  private arrivals = new Map<string, number>();
+  private profEst: LocationEstimate | null = null;
+  private profCosts: number[] | null = null;
+  private mlEst: LocationEstimate | null = null;
+  private locStage: LocationStage = 'segment';
+  /** Отрезок построен по первому изменению (волна от утечки видна на датчиках). */
+  private segByArrival = false;
+  private ml: KnnLocator | null = null;
   private locatedAt = -Infinity;
   private flowImbalance = NaN;
   private onset: number | undefined;
@@ -149,8 +176,31 @@ export class DetectionPipeline implements Detector {
     this.holdUntil = NaN;
     this.location = null;
     this.waveEst = null;
+    this.segEst = null;
+    this.profEst = null;
+    this.profCosts = null;
+    this.mlEst = null;
+    const ml = this.opts.mlLocator;
+    this.ml = ml && KnnLocator.fits(ml, ctx.config.geometry.length, ctx.sensors.map((v) => v.id)) ? new KnnLocator(ml) : null;
     this.flowImbalance = NaN;
     this.onset = undefined;
+  }
+
+  /**
+   * Признаки для ML-оценки места (ml/knn-locator.ts): только то, что видит детектор.
+   * Доступны во время тревоги; вне тревоги — null.
+   */
+  locatorFeatures(t: number): LocatorFeatures | null {
+    if (!this.alarmed) return null;
+    const z: Record<string, number> = {};
+    for (const [id, w] of this.zHist) if (w.length) z[id] = w.mean();
+    const first: Record<string, number | undefined> = Object.fromEntries(this.arrivals);
+    return { z, first, sinceAlarm: t - this.alarmStart, transit: this.ctx.config.geometry.length / this.sc.waveSpeed };
+  }
+
+  /** Текущие оценки места по стадиям (диагностика, стенд). */
+  get locationStages(): { segment: LocationEstimate | null; wave: LocationEstimate | null; profile: LocationEstimate | null; ml: LocationEstimate | null } {
+    return { segment: this.segEst, wave: this.waveEst, profile: this.profEst, ml: this.mlEst };
   }
 
   get effectiveParams(): DetectorParams {
@@ -270,10 +320,12 @@ export class DetectionPipeline implements Detector {
       const dp = this.step(e.p);
       if (Math.abs(dp) < 6) continue;
       if (e.leakLike(dp, this.step(e.q))) continue;
-      if (t - this.lastRegimeT > 5) {
+      // во время тревоги класс события не меняем: спад давления от самой утечки, дошедший до конца
+      // трубы раньше, чем отреагировал инерционный расходомер, похож на манёвр задвижки
+      if (t - this.lastRegimeT > 5 && !this.alarmed) {
         this.setEvent(e.cls, t);
         // новая рабочая точка: накопленное до события больше не относится к делу
-        if (!this.alarmed) this.stat.rearm();
+        this.stat.rearm();
       }
       this.lastRegimeT = t;
       this.guardUntil = Math.max(this.guardUntil, t + this.guardSec);
@@ -330,38 +382,144 @@ export class DetectionPipeline implements Detector {
   private locate(s: PreparedSample, out: StatOut): void {
     if (this.tracker && !this.waveEst) {
       const src = this.tracker.source();
-      if (src) this.waveEst = { x: src.x, interval: src.interval };
+      if (src) {
+        // интервал по точности времени прихода, расширенный ×1,5 до покрытия 90% (стенд, H-B13)
+        const half = ((src.interval[1] - src.interval[0]) / 2) * WAVE_WIDEN;
+        const L = this.ctx.config.geometry.length;
+        this.waveEst = { x: src.x, interval: [Math.max(0, src.x - half), Math.min(L, src.x + half)] };
+      }
     }
     if (s.t - this.locatedAt < 1) return;
     this.locatedAt = s.t;
+    if (s.t - this.alarmStart <= 20) {
+      for (const [id, f] of Object.entries(this.firstChanges(s.t))) {
+        if (f.sign < 0 && !this.arrivals.has(id) && this.ctx.sensors.some((v) => v.id === id && v.kind === 'p')) this.arrivals.set(id, f.t);
+      }
+    }
     const L = this.ctx.config.geometry.length;
-    const settled = s.t - this.alarmStart >= (1.5 * L) / this.sc.waveSpeed;
+    const transit = L / this.sc.waveSpeed;
+    const since = s.t - this.alarmStart;
     const method = this.spec.localization;
+    // профиль (L2) считаем всегда — для стадий и стенда; сглаживается кривая стоимости (τ ≈ 10 с), а не границы
+    if (method !== 'wave-timing') {
+      const c = this.profileCosts(s);
+      if (c) {
+        const a = 0.1;
+        this.profCosts = this.profCosts && this.profCosts.length === c.costs.length ? this.profCosts.map((v, j) => v + a * (c.costs[j]! - v)) : c.costs;
+        this.profEst = method === 'hgl' ? this.locateBy('hgl', s) : this.lsq.fromCosts(this.profCosts, c.rates, L, PROFILE_DELTA);
+      }
+    }
+    if (this.ml) {
+      const f = this.locatorFeatures(s.t);
+      const r = f ? this.ml.locate(f) : null;
+      if (r) this.mlEst = r;
+    }
+    // от грубого к точному: волна (если фронт виден) → профиль после затухания волн → ML в первые секунды;
+    // всё — в пересечении с отрезком по первому датчику (H-B13: покрытие 90–94% на тестовых seed)
     const statEst: LocationEstimate | null =
       out.location !== undefined ? { x: out.location, interval: out.locationInterval ?? [out.location, out.location] } : null;
-    let est: LocationEstimate | null;
-    if (method === 'wave-timing' || !settled) {
-      // до затухания волн стационарные методы не годятся: только волна или оценка самого детектора
-      est = this.waveEst ?? statEst;
-    } else {
-      let steady: LocationEstimate | null = null;
-      for (const m of [...new Set<LocalizationMethod>([method, 'lsq', 'hgl'])]) {
-        steady = this.locateBy(m, s);
-        if (steady) break;
-      }
-      if (steady && this.location && this.location !== this.waveEst) {
-        // сглаживание стационарной оценки (τ ≈ 10 с), чтобы маркер не прыгал
-        const a = 0.1;
-        const prev = this.location;
-        steady = {
-          x: prev.x + a * (steady.x - prev.x),
-          interval: [prev.interval[0] + a * (steady.interval[0] - prev.interval[0]), prev.interval[1] + a * (steady.interval[1] - prev.interval[1])],
-          rate: steady.rate,
-        };
-      }
-      est = combine(steady, this.waveEst) ?? statEst;
+    let cand: LocationEstimate | null = null;
+    let stage: LocationStage = 'segment';
+    if (this.waveEst) {
+      cand = this.waveEst;
+      stage = 'wave';
+    } else if (statEst && method === 'wave-timing') {
+      cand = statEst;
+      stage = 'wave';
+    } else if (this.profEst && since >= PROFILE_AFTER_TRANSITS * transit && this.profileTrusted()) {
+      cand = this.profEst;
+      stage = 'profile';
+    } else if (this.mlEst && since < ML_UNTIL_TRANSITS * transit && this.segByArrival) {
+      cand = this.mlEst;
+      stage = 'ml';
     }
-    if (est) this.location = est;
+    const seg = this.segEst;
+    let est: LocationEstimate | null = cand;
+    if (cand && seg) {
+      const lo = Math.max(cand.interval[0], seg.interval[0]);
+      const hi = Math.min(cand.interval[1], seg.interval[1]);
+      // противоречие с отрезком — доверяем отрезку: на стенде уточняющие стадии ошибались чаще
+      // (например, волна при плавно нарастающей утечке)
+      if (lo <= hi) est = { x: Math.min(hi, Math.max(lo, cand.x)), interval: [lo, hi], rate: cand.rate };
+      else {
+        est = { ...seg, x: Math.min(seg.interval[1], Math.max(seg.interval[0], this.profEst?.x ?? cand.x)) };
+        cand = null;
+      }
+    } else if (!cand && seg) {
+      // точка внутри отрезка — лучшая доступная оценка (профиль), а не сам датчик
+      const px = this.profEst?.x ?? (seg.interval[0] + seg.interval[1]) / 2;
+      est = { ...seg, x: Math.min(seg.interval[1], Math.max(seg.interval[0], px)) };
+    }
+    if (est) {
+      this.location = { ...est, rate: est.rate ?? this.profEst?.rate };
+      this.locStage = cand ? stage : 'segment';
+    }
+  }
+
+  /** Профилю можно верить, если оценённая им утечка не меньше PROFILE_MIN_FRACTION расхода. */
+  private profileTrusted(): boolean {
+    const q = this.profEst?.rate;
+    const nominal = this.prep.nominalFlow;
+    return q !== undefined && nominal > 0 && q / nominal >= PROFILE_MIN_FRACTION;
+  }
+
+  /**
+   * Первая оценка места — сразу при тревоге: волна от утечки раньше всех приходит к ближайшему
+   * датчику давления, значит утечка в его «ячейке» — от середины до соседа слева до середины до
+   * соседа справа, с запасом на неточность момента первого изменения (SEGMENT_MARGIN_SEC пробега волны).
+   * Нет первых изменений (малая утечка) — ячейка датчика с наибольшим спадом давления.
+   */
+  private segmentAtAlarm(t: number): LocationEstimate | null {
+    const L = this.ctx.config.geometry.length;
+    const ps = this.ctx.sensors.filter((v) => v.kind === 'p' && this.rawHist.has(v.id)).sort((a, b) => a.x - b.x);
+    if (ps.length < 2) return null;
+    const first = this.firstChanges(t);
+    let k = -1;
+    let best = Infinity;
+    ps.forEach((p, i) => {
+      const f = first[p.id];
+      if (f && f.sign < 0 && f.t < best) {
+        best = f.t;
+        k = i;
+      }
+    });
+    if (k < 0) {
+      const d = this.deltas();
+      let most = 0;
+      ps.forEach((p, i) => {
+        const v = d[p.id];
+        if (v !== undefined && v < most) {
+          most = v;
+          k = i;
+        }
+      });
+    }
+    if (k < 0) return { x: L / 2, interval: [0, L] };
+    const margin = SEGMENT_MARGIN_SEC * this.sc.waveSpeed;
+    // без первого изменения (малая утечка в шуме) датчик с наибольшим спадом указывает место ненадёжно:
+    // на стенде отрезок вокруг него промахивался в 30–60% случаев — честнее сказать «весь участок»
+    this.segByArrival = Number.isFinite(best);
+    if (!this.segByArrival) return { x: ps[k]!.x, interval: [0, L] };
+    const lo = k === 0 ? 0 : Math.max(0, (ps[k - 1]!.x + ps[k]!.x) / 2 - margin);
+    const hi = k === ps.length - 1 ? L : Math.min(L, (ps[k]!.x + ps[k + 1]!.x) / 2 + margin);
+    return { x: Math.min(hi, Math.max(lo, ps[k]!.x)), interval: [lo, hi] };
+  }
+
+  private profileCosts(s: PreparedSample): { costs: number[]; rates: number[] } | null {
+    const twin = this.ctx.twin;
+    if (!twin) return null;
+    if (!this.lsq.ready) this.lsq.build(twin, this.ctx.config.geometry.length, this.prep.nominalFlow);
+    const dr: Record<string, number> = {};
+    for (const [id, w] of this.zHist) {
+      const sg = this.prep.sigmaOf(id);
+      if (sg && s.valid.has(id)) dr[id] = w.mean() * sg;
+    }
+    return this.lsq.costs(dr, (id) => this.prep.sigmaOf(id));
+  }
+
+  /** Сглаженная кривая стоимости профиля (диагностика, калибровка интервала). */
+  get profileCostCurve(): number[] | null {
+    return this.profCosts;
   }
 
   private locateBy(m: LocalizationMethod, s: PreparedSample): LocationEstimate | null {
@@ -406,6 +564,10 @@ export class DetectionPipeline implements Detector {
         this.alarmed = false;
         this.location = null;
         this.waveEst = null;
+        this.segEst = null;
+        this.profEst = null;
+        this.profCosts = null;
+        this.mlEst = null;
         this.lsq = new LsqLocator();
         this.stat.rearm();
         this.prep.freeze(false);
@@ -441,6 +603,9 @@ export class DetectionPipeline implements Detector {
       } else {
         this.alarmed = true;
         this.alarmStart = s.t;
+        this.arrivals.clear();
+        this.segByArrival = false;
+        this.segEst = this.segmentAtAlarm(s.t);
         this.onset = onset;
         this.holdUntil = NaN;
         this.unknownSince = NaN;
@@ -476,6 +641,7 @@ export class DetectionPipeline implements Detector {
     if (this.alarmed && this.location) {
       result.location = this.location.x;
       result.locationInterval = this.location.interval;
+      result.locationStage = this.locStage;
     }
     // баланс расходов осмыслен, когда волна от утечки дошла до обоих концов (≈ один пробег)
     const flowsSettled = s.t - this.alarmStart >= this.ctx.config.geometry.length / this.sc.waveSpeed;
@@ -502,16 +668,6 @@ export class DetectionPipeline implements Detector {
       .map(([sensorId, v]) => ({ sensorId, share: v / total }))
       .sort((a, b) => b.share - a.share);
   }
-}
-
-/** Объединить две оценки места с весами 1/ширина² интервала (точная оценка доминирует). */
-function combine(a: LocationEstimate | null, b: LocationEstimate | null): LocationEstimate | null {
-  if (!a || !b) return a ?? b;
-  const wa = 1 / Math.max(100, (a.interval[1] - a.interval[0]) / 2) ** 2;
-  const wb = 1 / Math.max(100, (b.interval[1] - b.interval[0]) / 2) ** 2;
-  const x = (wa * a.x + wb * b.x) / (wa + wb);
-  const half = 1 / Math.sqrt(wa + wb);
-  return { x, interval: [x - half, x + half], rate: a.rate ?? b.rate };
 }
 
 /** Детектор по стратегии (файл strategy.selected.json или её часть). */

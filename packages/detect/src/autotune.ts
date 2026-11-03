@@ -77,6 +77,17 @@ export function gumbelScale(maxima: number[], blockSec: number, targetFarPerDay:
 
 /** Применить масштаб к параметру-порогу стратегии. */
 export function scaleThreshold(spec: StrategySpec, scale: number): StrategySpec {
+  // голосование: число голосов не масштабируется — масштабируем пороги участников (одинаково)
+  if (spec.strategy === 'fusion' && spec.fusionRule === 'vote' && spec.members?.length) {
+    return {
+      ...spec,
+      members: spec.members.map((m) => {
+        const mm = REGISTRY[m.detector]!;
+        const base = { ...mm.defaults, ...m.params };
+        return { ...m, params: { ...base, [mm.thresholdParam]: Number((base[mm.thresholdParam]! * scale).toPrecision(4)) } };
+      }),
+    };
+  }
   const meta = REGISTRY[spec.strategy]!;
   const base = { ...meta.defaults, ...spec.params };
   const param = meta.thresholdParam;

@@ -53,10 +53,10 @@ export class LsqLocator {
   }
 
   /**
-   * dr — изменение невязки (замер − прогноз) относительно нормы, СИ; sigma — шум по датчикам.
-   * Для каждого кандидата q̂ = (Hᵀy)/(HᵀH), стоимость = |y − q̂·H|²; интервал — где стоимость ≤ min + 4.
+   * Стоимость каждого кандидата: dr — изменение невязки (замер − прогноз) относительно нормы, СИ;
+   * sigma — шум по датчикам. q̂ = (Hᵀy)/(HᵀH) ≥ 0, стоимость = |y − q̂·H|².
    */
-  locate(dr: SensorValues, sigma: (id: string) => number | undefined, L: number): LocationEstimate | null {
+  costs(dr: SensorValues, sigma: (id: string) => number | undefined): { costs: number[]; rates: number[] } | null {
     if (!this.ready) return null;
     const costs: number[] = [];
     const rates: number[] = [];
@@ -78,9 +78,15 @@ export class LsqLocator {
       rates.push(q);
       costs.push(yy - 2 * q * hy + q * q * hh);
     }
+    return { costs, rates };
+  }
+
+  /** Место по стоимостям: минимум (с уточнением параболой) и интервал, где стоимость ≤ минимум + delta. */
+  fromCosts(costs: number[], rates: number[], L: number, delta = 4): LocationEstimate | null {
+    if (!this.ready || costs.length !== this.xs.length) return null;
     let best = 0;
     for (let j = 1; j < costs.length; j++) if (costs[j]! < costs[best]!) best = j;
-    const lim = costs[best]! + 4;
+    const lim = costs[best]! + delta;
     let lo = best;
     let hi = best;
     while (lo > 0 && costs[lo - 1]! <= lim) lo--;
@@ -94,5 +100,10 @@ export class LsqLocator {
     }
     const half = L / this.xs.length / 2;
     return { x: Math.min(L, Math.max(0, x)), interval: [Math.max(0, this.xs[lo]! - half), Math.min(L, this.xs[hi]! + half)], rate: rates[best] };
+  }
+
+  locate(dr: SensorValues, sigma: (id: string) => number | undefined, L: number, delta = 4): LocationEstimate | null {
+    const c = this.costs(dr, sigma);
+    return c ? this.fromCosts(c.costs, c.rates, L, delta) : null;
   }
 }
