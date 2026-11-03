@@ -22,9 +22,8 @@ export class DetectEngine {
   private strategy!: StrategySpec;
   private rules: ActionRule[] = [];
   private buffer: SensorFrame[] = [];
-  private card: EventCard | null = null;
+  private cards = new Map<string, { card: EventCard; at: number; state: string }>();
   private lastEvent: string | undefined;
-  private cardAt = -Infinity;
   private cardSeq = 0;
   private nominalFlow = NaN;
 
@@ -55,7 +54,7 @@ export class DetectEngine {
       this.det = createDetector(this.strategy, { mlLocator: ML_LOCATOR });
     }
     this.det.reset(this.ctx());
-    this.card = null;
+    this.cards.clear();
     this.lastEvent = undefined;
   }
 
@@ -74,40 +73,48 @@ export class DetectEngine {
       preds.push(pred);
       outs.push(out);
       if (!Number.isFinite(this.nominalFlow) && out.phase !== 'warmup') this.nominalFlow = this.det.preprocessor.nominalFlow;
-      const card = this.updateCard(out);
-      if (card) cards.push(card);
+      cards.push(...this.updateCards(out));
     }
     const t = frames.at(-1)?.t ?? 0;
     while (this.buffer.length && this.buffer[0]!.t < t - KEEP_SEC) this.buffer.shift();
     return { type: 'batch', preds, outs, cards, ...(frames.length && this.twin.profile ? { twinProfile: this.twin.profile() } : {}) };
   }
 
-  /** Карточка: создаётся в тик тревоги (или события «отказ датчика»), пока тревога активна — обновляется раз в секунду. */
-  private updateCard(out: DetectorOutput): EventCard | null {
+  /**
+   * Карточки: на каждую утечку своя (по списку активных утечек детектора) и на отказ датчика.
+   * Карточка утечки создаётся в тик тревоги и уточняется раз в секунду, пока место уточняется;
+   * при подтверждении — последний раз.
+   */
+  private updateCards(out: DetectorOutput): EventCard[] {
     const label = (id: string) => this.config.sensors.find((s) => s.id === id)?.label ?? id;
     const opts = { rules: this.rules, nominalFlow: this.nominalFlow, detector: this.strategy.strategy, sensorLabel: label };
-    const isFault = out.eventClass === 'sensor-fault' && this.lastEvent !== 'sensor-fault';
+    const res: EventCard[] = [];
+    if (out.eventClass === 'sensor-fault' && this.lastEvent !== 'sensor-fault') res.push(buildEventCard(out, { ...opts, id: `ev${++this.cardSeq}` }));
     this.lastEvent = out.eventClass;
-    if ((out.alarm && !this.card) || isFault) {
-      this.card = buildEventCard(out, { ...opts, id: `ev${++this.cardSeq}` });
-      this.cardAt = out.t;
-      if (isFault && !out.alarm) {
-        const c = this.card;
-        this.card = null;
-        return c;
-      }
-      return this.card;
+    for (const l of out.leaks ?? []) {
+      const prev = this.cards.get(l.id);
+      const due = !prev || (l.state === 'detecting' && out.t - prev.at >= 1) || prev.state !== l.state;
+      if (!due) continue;
+      const leakOut: DetectorOutput = {
+        ...out,
+        t: l.tAlarm,
+        alarm: true,
+        eventClass: l.state === 'confirmed' ? 'leak' : out.eventClass ?? 'leak',
+        leaks: [l],
+        ...(l.location !== undefined ? { location: l.location } : {}),
+        ...(l.locationInterval ? { locationInterval: l.locationInterval } : {}),
+        ...(l.locationStage ? { locationStage: l.locationStage } : {}),
+        ...(l.leakRate !== undefined ? { leakRate: l.leakRate } : {}),
+      };
+      if (l.location === undefined) delete leakOut.location;
+      const card = buildEventCard(leakOut, { ...opts, id: `ev-${l.id}` });
+      const acked = prev?.card.acknowledgedAt;
+      const c = { ...card, ...(acked !== undefined ? { acknowledgedAt: acked } : {}) };
+      this.cards.set(l.id, { card: c, at: out.t, state: l.state });
+      res.push(c);
     }
-    if (out.alarm && this.card && out.t - this.cardAt >= 1) {
-      // уточнение: место и расход сходятся по мере прихода волн; время тревоги прежнее
-      // время тревоги прежнее, поэтому и потери считаются «к моменту тревоги» по уточнённому расходу
-      const updated = buildEventCard({ ...out, t: this.card.tAlarm }, { ...opts, id: this.card.id });
-      this.card = { ...updated, ...(this.card.acknowledgedAt !== undefined ? { acknowledgedAt: this.card.acknowledgedAt } : {}) };
-      this.cardAt = out.t;
-      return this.card;
-    }
-    if (!out.alarm) this.card = null;
-    return null;
+    for (const id of [...this.cards.keys()]) if (!(out.leaks ?? []).some((l) => l.id === id)) this.cards.delete(id);
+    return res;
   }
 
   /** Калибровка по последним windowSec секундам (данные без утечки!). */

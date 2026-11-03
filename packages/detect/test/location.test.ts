@@ -115,3 +115,52 @@ describe('калибровка слияния «ИЛИ»', () => {
     expect(s.members![0]!.params!.drift).toBe(0.5);
   });
 });
+
+describe('несколько утечек подряд и их устранение', () => {
+  it('две утечки 5%: обе найдены и подтверждены, каждая снимается сама после устранения, затем норма', () => {
+    const cfg = defaultConfig();
+    const truth = structuredClone(cfg);
+    truth.geometry.roughness = 8e-5;
+    const src = new SimulatedSource(truth, {
+      seed: 4,
+      events: [
+        { t: 90, type: 'leak', id: 'A', x: 31000, sizePct: 5, rampSec: 0 },
+        { t: 450, type: 'leak', id: 'B', x: 12000, sizePct: 5, rampSec: 0 },
+      ],
+      durationSec: 1000,
+    });
+    const twin = createTwin(cfg);
+    const spec = readJson<Parameters<typeof createDetector>[0]>('configs/strategy.selected.json');
+    const det = createDetector({ ...spec, warmupSec: 60 });
+    det.reset(ctxFor(cfg, twin));
+    const seen = new Map<string, { states: Set<string>; lo: number; hi: number }>();
+    let activeAt = (t: number) => false as boolean;
+    const timeline: Array<{ t: number; ids: string[] }> = [];
+    while (!src.done) {
+      for (const f of src.step(0.1)) {
+        if (Math.abs(f.t - 700) < 0.05) src.removeLeak('A');
+        if (Math.abs(f.t - 850) < 0.05) src.removeLeak('B');
+        const o = det.update(f, twin.predict(f));
+        for (const l of o.leaks ?? []) {
+          const e = seen.get(l.id) ?? { states: new Set<string>(), lo: NaN, hi: NaN };
+          e.states.add(l.state);
+          if (l.locationInterval) [e.lo, e.hi] = l.locationInterval;
+          seen.set(l.id, e);
+        }
+        timeline.push({ t: f.t, ids: (o.leaks ?? []).map((l) => l.id) });
+      }
+    }
+    activeAt = (t: number) => (timeline.find((x) => x.t >= t)?.ids.length ?? 0) > 0;
+    // ровно две утечки, обе подтверждены, зоны содержат истину
+    expect([...seen.keys()]).toEqual(['L1', 'L2']);
+    expect(seen.get('L1')!.states.has('confirmed')).toBe(true);
+    expect(seen.get('L2')!.states.has('confirmed')).toBe(true);
+    expect(seen.get('L1')!.lo).toBeLessThanOrEqual(31000);
+    expect(seen.get('L1')!.hi).toBeGreaterThanOrEqual(31000);
+    expect(seen.get('L2')!.lo).toBeLessThanOrEqual(12000);
+    expect(seen.get('L2')!.hi).toBeGreaterThanOrEqual(12000);
+    // после устранения A остаётся одна B; после устранения B — норма
+    expect(timeline.find((x) => x.t >= 800)!.ids).toEqual(['L2']);
+    expect(activeAt(950)).toBe(false);
+  });
+});

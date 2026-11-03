@@ -18,8 +18,17 @@ const CLASS_NAMES: Record<string, string> = {
 export class CardPanel {
   private cards: EventCard[] = [];
   private acknowledged = new Set<string>();
+  /** Устранённые утечки: id карточки → время на часах оператора. */
+  private resolved = new Map<string, string>();
 
   constructor(private readonly host: HTMLElement, private readonly onAck: (card: EventCard) => void) {
+    this.render();
+  }
+
+  /** Утечку устранили (система увидела возврат к норме): карточка остаётся в истории, но гаснет. */
+  resolve(id: string): void {
+    if (!this.cards.some((c) => c.id === id) || this.resolved.has(id)) return;
+    this.resolved.set(id, new Date().toLocaleTimeString('ru-RU'));
     this.render();
   }
 
@@ -33,6 +42,7 @@ export class CardPanel {
   reset(): void {
     this.cards = [];
     this.acknowledged.clear();
+    this.resolved.clear();
     this.render();
   }
 
@@ -91,8 +101,9 @@ export class CardPanel {
     }
     return h(
       'div',
-      { class: `card sev-${c.action.severity}${big ? '' : ' small-card'}` },
-      h('div', { class: 'card-title' }, h('strong', {}, CLASS_NAMES[c.eventClass] ?? c.eventClass), h('span', { class: 'muted' }, ` · t = ${fmt(c.tAlarm, 1)} с · уверенность ${fmt(c.confidence * 100, 0)}%`)),
+      { class: `card ${this.resolved.has(c.id) ? 'resolved' : `sev-${c.action.severity}`}${big ? '' : ' small-card'}` },
+      this.resolved.has(c.id) ? h('div', { class: 'resolved-note' }, `Устранена в ${this.resolved.get(c.id)} — показания вернулись к норме`) : '',
+      h('div', { class: 'card-title' }, h('strong', {}, `${CLASS_NAMES[c.eventClass] ?? c.eventClass}${/^ev-L\d+$/.test(c.id) ? ` №${c.id.slice(4)}` : ''}`), h('span', { class: 'muted' }, ` · t = ${fmt(c.tAlarm, 1)} с · уверенность ${fmt(c.confidence * 100, 0)}%`)),
       h('table', { class: 'kv' }, ...rows.map(([k, v]) => h('tr', {}, h('td', {}, k), h('td', {}, v)))),
       isLeak && c.contributions.length ? h('div', { class: 'muted small' }, 'Какие датчики дали сигнал') : '',
       isLeak ? contrib : '',

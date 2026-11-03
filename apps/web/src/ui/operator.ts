@@ -8,7 +8,7 @@
  * Ниже схемы — «воронка»: как сужается зона поиска утечки со временем после тревоги
  * (по горизонтали — тот же километраж, по вертикали — секунды после тревоги).
  */
-import type { DetectorOutput, LocationStage, PipelineConfig, SensorFrame } from '@pipetwin/core/contracts';
+import type { ActiveLeak, DetectorOutput, LocationStage, PipelineConfig, SensorFrame } from '@pipetwin/core/contracts';
 import { display, fmt, km } from './format';
 
 export const STAGE_NAMES: Record<LocationStage, string> = {
@@ -36,6 +36,8 @@ export interface OperatorState {
   zone: ZoneSample[];
   /** Переходный режим (смена режима перекачки). */
   transient: boolean;
+  /** Все активные утечки — у каждой своя зона на схеме. */
+  leaks: ActiveLeak[];
 }
 
 const C = {
@@ -61,7 +63,7 @@ export class OperatorView {
   private readonly mimic: HTMLCanvasElement;
   private readonly funnel: HTMLCanvasElement;
   private cfg: PipelineConfig | null = null;
-  private state: OperatorState = { frame: null, out: null, inputs: [], zone: [], transient: false };
+  private state: OperatorState = { frame: null, out: null, inputs: [], zone: [], transient: false, leaks: [] };
 
   constructor(private readonly host: HTMLElement) {
     this.mimic = document.createElement('canvas');
@@ -139,25 +141,34 @@ export class OperatorView {
     }
     g.fillText('км', X(L) + 14, 14);
 
-    // зона поиска и оценка места
-    const lo = out?.locationInterval?.[0];
-    const hi = out?.locationInterval?.[1];
-    if (alarm && lo !== undefined && hi !== undefined) {
-      const x0 = X(lo);
-      const x1 = Math.max(X(hi), x0 + 2);
-      g.fillStyle = C.zone;
+    // зоны поиска всех активных утечек: подтверждённые — сплошной рамкой, текущая — пунктиром
+    const leaks = this.state.leaks.length ? this.state.leaks : [];
+    const labelRows: Array<{ x0: number; x1: number; row: number }> = [];
+    for (const l of leaks) {
+      const iv = l.locationInterval;
+      if (!iv) continue;
+      const whole = iv[1] - iv[0] >= 0.9 * L;
+      const x0 = X(iv[0]);
+      const x1 = Math.max(X(iv[1]), x0 + 2);
+      g.fillStyle = whole ? 'rgba(248, 81, 73, 0.08)' : C.zone;
       g.fillRect(x0, 34, x1 - x0, H - 60);
       g.strokeStyle = C.zoneLine;
-      g.setLineDash([4, 3]);
+      g.setLineDash(l.state === 'confirmed' ? [] : [4, 3]);
       g.strokeRect(x0 + 0.5, 34.5, x1 - x0 - 1, H - 61);
       g.setLineDash([]);
-      const stage = out?.locationStage ? STAGE_NAMES[out.locationStage] : '';
-      const text = `ЗОНА ПОИСКА км ${fmt(km(lo), 1)}–${fmt(km(hi), 1)}${stage ? ` · ${stage}` : ''}`;
+      const n = l.id.replace(/^L/, '');
+      const stage = l.locationStage ? STAGE_NAMES[l.locationStage] : '';
+      const text = whole
+        ? `№${n}: МЕСТО НЕ ОПРЕДЕЛЕНО — ВЕСЬ УЧАСТОК`
+        : `№${n}${l.state === 'confirmed' ? ' ПОДТВ.' : ''} км ${fmt(km(iv[0]), 1)}–${fmt(km(iv[1]), 1)}${stage ? ` · ${stage}` : ''}`;
       g.font = 'bold 11px "IBM Plex Sans", "Segoe UI", system-ui, sans-serif';
       const tw = g.measureText(text).width;
       const tx = Math.min(Math.max((x0 + x1) / 2 - tw / 2, 4), W - tw - 4);
+      let row = 0;
+      while (labelRows.some((r) => r.row === row && tx < r.x1 + 6 && tx + tw > r.x0 - 6)) row++;
+      labelRows.push({ x0: tx, x1: tx + tw, row });
       g.fillStyle = C.alarm;
-      g.fillText(text, tx, 48);
+      g.fillText(text, tx, 48 + row * 14);
       g.font = '11px "IBM Plex Sans", "Segoe UI", system-ui, sans-serif';
     }
 
@@ -193,9 +204,11 @@ export class OperatorView {
     station(g, X(0) - 72, pipeY, 'НПС (вход)', 'pump', C);
     station(g, X(L) + 72, pipeY, 'КП (выход)', 'valve', C);
 
-    // точка оценки
-    if (alarm && out?.location !== undefined) {
-      const px = X(out.location);
+    // точки оценки места (не рисуем, если зона — весь участок: точка там ничего не значит)
+    for (const l of leaks) {
+      const iv = l.locationInterval;
+      if (l.location === undefined || (iv && iv[1] - iv[0] >= 0.9 * L)) continue;
+      const px = X(l.location);
       g.fillStyle = C.alarm;
       g.beginPath();
       g.moveTo(px, pipeY - 13);
@@ -260,8 +273,11 @@ export class OperatorView {
 
     // состояние внизу
     g.fillStyle = alarm ? C.alarm : suspect ? C.warn : C.muted;
+    const nLeaks = this.state.leaks.length;
     const status = alarm
-      ? `АВАРИЯ: признаки утечки${out?.location !== undefined ? ` · оценка км ${fmt(km(out.location), 1)}` : ''}`
+      ? nLeaks > 1
+        ? `АВАРИЯ: активных утечек ${nLeaks}`
+        : `АВАРИЯ: признаки утечки${out?.location !== undefined && !(out.locationInterval && out.locationInterval[1] - out.locationInterval[0] >= 0.9 * L) ? ` · оценка км ${fmt(km(out.location), 1)}` : ' · место уточняется'}`
       : suspect
         ? 'ПОДОЗРЕНИЕ: отклонение от модели, идёт проверка'
         : out?.phase === 'warmup'
@@ -305,8 +321,18 @@ export class OperatorView {
     // линия оценки места
     g.strokeStyle = C.alarm;
     g.lineWidth = 1.5;
+    // линия оценки — только где зона уже, чем весь участок (иначе точка ничего не значит)
     g.beginPath();
-    zone.forEach((a, i) => (i ? g.lineTo(X(a.x), Y(a.dt)) : g.moveTo(X(a.x), Y(a.dt))));
+    let pen = false;
+    for (const a of zone) {
+      if (a.hi - a.lo >= 0.9 * L) {
+        pen = false;
+        continue;
+      }
+      if (pen) g.lineTo(X(a.x), Y(a.dt));
+      else g.moveTo(X(a.x), Y(a.dt));
+      pen = true;
+    }
     g.stroke();
     const last = zone.at(-1)!;
     g.fillStyle = C.ink;

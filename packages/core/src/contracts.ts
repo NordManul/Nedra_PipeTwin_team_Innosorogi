@@ -517,6 +517,24 @@ export type DetectorName =
  */
 export type LocationStage = 'segment' | 'wave' | 'profile' | 'ml';
 
+/** Активная утечка в выходе детектора. */
+export interface ActiveLeak {
+  /** Номер утечки за сессию: «L1», «L2»… */
+  id: string;
+  /** Время тревоги по этой утечке, с. */
+  tAlarm: Seconds;
+  location?: number;
+  locationInterval?: [lo: number, hi: number];
+  locationStage?: LocationStage;
+  /** Оценка расхода утечки, м³/с. */
+  leakRate?: number;
+  /**
+   * detecting — событие в развитии, место уточняется;
+   * confirmed — место установилось, вклад утечки учтён в норме: детектор готов ловить следующую.
+   */
+  state: 'detecting' | 'confirmed';
+}
+
 export type LocalizationMethod =
   | 'hgl' //         L1 — пересечение линий гидравлического уклона
   | 'lsq' //         L2 — МНК-подбор (x, q_leak) по чувствительностям twin
@@ -592,6 +610,12 @@ export interface DetectorOutput {
   locationInterval?: [lo: number, hi: number];
   /** Откуда текущая оценка места — для оператора: насколько ей можно доверять. */
   locationStage?: LocationStage;
+  /**
+   * Все активные утечки (несколько подряд — каждая отдельно). Утечка пропадает из списка,
+   * когда система сама увидела её устранение (показания вернулись к норме).
+   * location / locationInterval / locationStage выше — для последнего события.
+   */
+  leaks?: ActiveLeak[];
   /** Оценка расхода утечки, м³/с. */
   leakRate?: number;
   /** Нормированные невязки z = r/σ по датчикам — для графиков и объяснения. */

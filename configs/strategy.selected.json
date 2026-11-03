@@ -9,7 +9,7 @@
   "localization": "lsq",
   "signatureFilter": true,
   "warmupSec": 60,
-  "selectedAt": "2026-11-03T05:34:58Z",
+  "selectedAt": "2026-11-03T10:59:59Z",
   "evidence": {
     "ttd_med_s": 11.2,
     "ttd_p95_s": 38.51,
@@ -19,5 +19,5 @@
     "pod_5pct": 0.988
   },
   "runnerUp": "cusum",
-  "runsHash": "95ff7292d28971a1ad6fa1d4c3e20358d259963d"
+  "runsHash": "72e3dc17fcda1083317b27ef4ef1910a79d6f5a8"
 }
