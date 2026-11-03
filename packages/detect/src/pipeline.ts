@@ -86,6 +86,8 @@ const SETTLE_REL = 0.15;
 /** Устранение: невязка вернулась на вклад утечки с ошибкой меньше этой доли, RECOVER_HITS проверок подряд (раз в секунду). */
 const RECOVER_TOL = 0.5;
 const RECOVER_HITS = 5;
+/** Допуск баланса расходов при снятии: доля от суммарного расхода снятых утечек (или 3 шума баланса). */
+const BALANCE_REL = 0.3;
 /**
  * Защитное окно после подтверждения и после устранения утечки: длительность — в долях окна смены режима.
  * После утечки расход и давления перестраиваются минутами, и остаток дрейфа тем больше, чем крупнее утечка,
@@ -107,14 +109,15 @@ const SPLIT_MIN_SHARE = 0.15;
 const SPLIT_ZONE_FRAC = 0.2;
 /**
  * Две волны: времена прихода спада давления к датчикам не объясняются одним источником (RMS больше
- * ARR_SINGLE_TOL, с, даже если отбросить один датчик — у насоса бывает ложный «приход»), а парой источников —
- * объясняются (RMS меньше ARR_PAIR_TOL). Зона каждой — места, где RMS пары не больше минимума + ARR_ZONE_TOL.
+ * ARR_SINGLE_TOL, с), а парой источников — объясняются (RMS меньше ARR_PAIR_TOL и вдвое лучше одного).
+ * Ложный «приход» у насоса пара не объясняет — одиночная утечка не делится.
+ * Зона каждой — места, где RMS пары не больше минимума + ARR_ZONE_TOL.
  */
-const ARR_SINGLE_TOL = 1.5;
+const ARR_SINGLE_TOL = 0.8;
 /** Приход волны засчитываем, если спад держится столько секунд (шумовой выброс — нет). */
 const ARRIVAL_SUSTAIN_SEC = 2;
-const ARR_PAIR_TOL = 1;
-const ARR_ZONE_TOL = 0.5;
+const ARR_PAIR_TOL = 1.5;
+const ARR_ZONE_TOL = 2;
 
 export function requirementsOf(spec: StrategySpec): DetectorRequirements {
   if (spec.strategy === 'fusion') return mergeRequirements((spec.members ?? []).map((m) => REGISTRY[m.detector]!.requires));
@@ -163,6 +166,9 @@ export class DetectionPipeline implements Detector {
   private segEst: LocationEstimate | null = null;
   /** Моменты прихода волны (первого спада давления) по датчикам — запоминаются в первые 20 с тревоги. */
   private arrivals = new Map<string, number>();
+  /** Уровень давления «до события» и порог по датчикам — для прихода волны после тревоги. */
+  private arrPre = new Map<string, { pre: number; lim: number }>();
+  private arrScanT = -Infinity;
   private profEst: LocationEstimate | null = null;
   private profCosts: number[] | null = null;
   private mlEst: LocationEstimate | null = null;
@@ -183,6 +189,8 @@ export class DetectionPipeline implements Detector {
   /** Снимок невязок для проверки, что сдвиг после снятия утечек установился. */
   private recoverSnap: { t: number; r: Record<string, number> } | null = null;
   private recoverStable = 0;
+  /** До какого времени держать норму замороженной: показания сдвинулись при известных утечках. */
+  private recoverHoldUntil = -Infinity;
   /** Две волны в текущем событии (одновременные утечки) — по временам прихода. */
   private multi: NonNullable<ReturnType<DetectionPipeline['arrivalSources']>> | null = null;
   private multiKey = '';
@@ -245,6 +253,7 @@ export class DetectionPipeline implements Detector {
     this.removalUntil = -Infinity;
     this.recoverSnap = null;
     this.recoverStable = 0;
+    this.recoverHoldUntil = -Infinity;
     this.settleSnap = null;
     this.settleHits = 0;
     this.leakGuardUntil = -Infinity;
@@ -495,6 +504,9 @@ export class DetectionPipeline implements Detector {
         if (f.sign < 0 && !this.arrivals.has(id) && this.ctx.sensors.some((v) => v.id === id && v.kind === 'p')) this.arrivals.set(id, f.t);
       }
     }
+    // дальние датчики: волна идёт до них дольше, чем держит история, — ловим приход по уровню «до события»,
+    // запомненному в момент тревоги, до полного пробега волны + 10 с
+    if (s.t - this.alarmStart <= this.ctx.config.geometry.length / this.sc.waveSpeed + 10) this.trackArrivals(s.t);
     const L = this.ctx.config.geometry.length;
     const transit = L / this.sc.waveSpeed;
     const since = s.t - this.alarmStart;
@@ -715,6 +727,7 @@ export class DetectionPipeline implements Detector {
         this.alarmStart = s.t;
         this.leakId = `L${++this.leakSeq}`;
         this.arrivals.clear();
+        this.captureArrivalLevels();
         this.segByArrival = false;
         this.segEst = this.segmentAtAlarm(s.t);
         this.onset = onset;
@@ -735,7 +748,8 @@ export class DetectionPipeline implements Detector {
       phase = 'suspect';
       this.prep.freeze(true);
     } else {
-      this.prep.freeze(false);
+      // идёт возможное снятие утечек — норму не подстраиваем, пока не решим, что именно сняли
+      this.prep.freeze(s.t < this.recoverHoldUntil);
     }
 
     if (!this.alarmed && this.confirmed.length) this.watchRecovery(s.t);
@@ -856,6 +870,49 @@ export class DetectionPipeline implements Detector {
     return this.settleHits >= SETTLE_HITS;
   }
 
+  /** В момент тревоги: уровень «до события» по датчикам давления (окно preWindow истории). */
+  private captureArrivalLevels(): void {
+    this.arrPre.clear();
+    const nMa = Math.max(1, Math.round(1 / this.sc.binSec));
+    for (const v of this.ctx.sensors) {
+      if (v.kind !== 'p') continue;
+      const w = this.rawHist.get(v.id);
+      const noise = this.prep.rawStats(v.id)?.noise;
+      const win = w ? this.preWindow(w.length) : null;
+      if (!w || !noise || !win) continue;
+      this.arrPre.set(v.id, { pre: w.meanRange(win[0], win[1]), lim: (4 * noise) / Math.sqrt(nMa) });
+    }
+    this.arrScanT = this.alarmStart;
+  }
+
+  /**
+   * Приход волны на датчики, ещё не увидевшие её: скользящее среднее за 1 с ушло вниз от уровня «до события»
+   * дальше порога и держится ARRIVAL_SUSTAIN_SEC. Просматриваем только новые отсчёты с прошлой проверки.
+   */
+  private trackArrivals(t: number): void {
+    const bin = this.sc.binSec;
+    const nMa = Math.max(1, Math.round(1 / bin));
+    const nSus = Math.round(ARRIVAL_SUSTAIN_SEC / bin);
+    const nNew = Math.max(1, Math.round((t - this.arrScanT) / bin));
+    this.arrScanT = t;
+    for (const [id, { pre, lim }] of this.arrPre) {
+      if (this.arrivals.has(id)) continue;
+      const w = this.rawHist.get(id);
+      if (!w) continue;
+      // кандидаты — отсчёты, у которых уже есть nSus более новых для проверки устойчивости
+      for (let i = Math.min(w.length - nMa, nSus + nNew); i >= nSus; i--) {
+        const ma = w.meanRange(i, i + nMa);
+        if (!(pre - ma > lim)) continue;
+        let held = true;
+        for (let k = 1; k <= nSus && held; k++) if (!(pre - w.meanRange(i - k, i - k + nMa) > lim / 2)) held = false;
+        if (held) {
+          this.arrivals.set(id, t - (i + nMa / 2) * bin);
+          break;
+        }
+      }
+    }
+  }
+
   /**
    * Сколько источников объясняют времена прихода волны: один (t_i = t0 + |x_i − x|/a, допускаем один выброс)
    * или два одновременных (t_i = t0 + min(|x_i − x1|, |x_i − x2|)/a). Нужно 4+ датчика давления с приходом.
@@ -919,7 +976,7 @@ export class DetectionPipeline implements Detector {
   /** Две волны видны: одна утечка их не объясняет, пара — объясняет. */
   private twoWaves(): ReturnType<DetectionPipeline['arrivalSources']> {
     const r = this.arrivalSources();
-    return r && r.rms1 > ARR_SINGLE_TOL && r.rms2 < ARR_PAIR_TOL ? r : null;
+    return r && r.rms1 > ARR_SINGLE_TOL && r.rms2 < ARR_PAIR_TOL && r.rms2 < 0.5 * r.rms1 ? r : null;
   }
 
   /**
@@ -1142,49 +1199,76 @@ export class DetectionPipeline implements Detector {
     const yv = ids.map((id, i) => (sg[i]! > 0 ? y[id]! / sg[i]! : 0));
     const dv = this.confirmed.map((k) => ids.map((id, i) => (sg[i]! > 0 ? (k.delta[id] ?? 0) / sg[i]! : 0)));
     const n = this.confirmed.length;
+    // баланс расходов (вход − выход) — прямо суммарный расход утечек: по нему видно, сколько утечек сняли,
+    // даже когда в давлениях вклад малой утечки тонет в шуме и в неточности модели после крупной
+    const L = this.ctx.config.geometry.length;
+    const qIn = this.ctx.sensors.find((v) => v.kind === 'q' && v.x <= 1)?.id;
+    const qOut = this.ctx.sensors.find((v) => v.kind === 'q' && v.x >= L - 1)?.id;
+    const hasBal = !!qIn && !!qOut && y[qIn] !== undefined && y[qOut] !== undefined;
+    const by = hasBal ? y[qIn!]! - y[qOut!]! : 0;
+    const bk = this.confirmed.map((k) => (hasBal ? (k.delta[qIn!] ?? 0) - (k.delta[qOut!] ?? 0) : 0));
+    // шум баланса на среднем за окно: расходомеры инерционны, независимых отсчётов ≈ 1 в секунду
+    const balNoise = hasBal ? Math.hypot(this.prep.sigmaOf(qIn!) ?? 0, this.prep.sigmaOf(qOut!) ?? 0) / Math.sqrt(LEAK_WINDOW_SEC) : 0;
+    // давления: шум среднего за окно по всем каналам, в долях σ
+    const pAbs = (3 * Math.sqrt(ids.length)) / Math.sqrt(LEAK_WINDOW_SEC);
     const evalSet = (mask: number) => {
       let err = 0;
       let size = 0;
+      let bsum = 0;
+      for (let k = 0; k < n; k++) if (mask & (1 << k)) bsum += bk[k]!;
       for (let i = 0; i < ids.length; i++) {
         let sum = 0;
         for (let k = 0; k < n; k++) if (mask & (1 << k)) sum += dv[k]![i]!;
         err += (yv[i]! + sum) ** 2;
         size += sum * sum;
       }
-      return { err: Math.sqrt(err), size: Math.sqrt(size) };
+      const sb = Math.max(3 * balNoise, BALANCE_REL * Math.abs(bsum));
+      const bmis = hasBal && sb > 0 ? Math.abs(by + bsum) / sb : 0;
+      err = Math.sqrt(err);
+      size = Math.sqrt(size);
+      // счёт набора: давления (в долях вклада) и баланс (в долях допуска)
+      const score = (err / Math.max(size, 1e-9)) ** 2 + bmis ** 2;
+      const ok = bmis < 1 && err < Math.max(RECOVER_TOL * size, hasBal ? pAbs : 0);
+      return { err, size, score, ok };
     };
     let bestMask = 0;
-    let best = { err: Infinity, size: 0 };
+    let best = { err: Infinity, size: 0, score: Infinity, ok: false };
     if (n <= 10) {
       for (let mask = 1; mask < 1 << n; mask++) {
         const r = evalSet(mask);
-        if (r.err < best.err) {
+        if (r.score < best.score) {
           best = r;
           bestMask = mask;
         }
       }
     } else {
-      // много утечек: жадно добавляем ту, что сильнее всего уменьшает ошибку
+      // много утечек: жадно добавляем ту, что сильнее всего уменьшает счёт
       let mask = 0;
-      let cur = evalSet(0).err;
+      let cur = Infinity;
       for (;;) {
         let pick = -1;
-        let pickErr = cur;
+        let pickScore = cur;
         for (let k = 0; k < n; k++) {
           if (mask & (1 << k)) continue;
-          const e = evalSet(mask | (1 << k)).err;
-          if (e < pickErr) {
-            pickErr = e;
+          const e = evalSet(mask | (1 << k)).score;
+          if (e < pickScore) {
+            pickScore = e;
             pick = k;
           }
         }
         if (pick < 0) break;
         mask |= 1 << pick;
-        cur = pickErr;
+        cur = pickScore;
       }
       bestMask = mask;
-      best = mask ? evalSet(mask) : best;
+      if (mask) best = evalSet(mask);
     }
+    // заметный сдвиг (баланс или давления) — держим норму замороженной до решения (не дольше 2 окон защиты)
+    const shiftP = Math.hypot(...yv);
+    const shifted = (hasBal && Math.abs(by) > 3 * balNoise) || shiftP > pAbs;
+    if (shifted) {
+      if (!(t < this.recoverHoldUntil)) this.recoverHoldUntil = t + 2 * this.guardSec;
+    } else this.recoverHoldUntil = -Infinity;
     // сдвиг должен установиться: пока идёт переходный процесс от снятия дальней утечки, набор ещё неполон
     if (!this.recoverSnap || t - this.recoverSnap.t >= LEAK_WINDOW_SEC) {
       const prev = this.recoverSnap;
@@ -1199,7 +1283,7 @@ export class DetectionPipeline implements Detector {
       }
       this.recoverStable = stable ? this.recoverStable + 1 : 0;
     }
-    const ok = bestMask !== 0 && best.size > 0 && best.err < RECOVER_TOL * best.size && this.recoverStable >= 2;
+    const ok = bestMask !== 0 && best.size > 0 && best.ok && this.recoverStable >= 2;
     this.recoverHits = ok && bestMask === this.recoverMask ? this.recoverHits + 1 : ok ? 1 : 0;
     this.recoverMask = ok ? bestMask : 0;
     if (this.recoverHits < RECOVER_HITS) return;
@@ -1215,6 +1299,7 @@ export class DetectionPipeline implements Detector {
     this.recoverMask = 0;
     this.recoverSnap = null;
     this.recoverStable = 0;
+    this.recoverHoldUntil = -Infinity;
     this.removalUntil = Math.max(this.removalUntil, t + this.guardSec);
     this.zHist.clear();
     this.zLong.clear();
