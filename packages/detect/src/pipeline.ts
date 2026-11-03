@@ -402,6 +402,12 @@ export class DetectionPipeline implements Detector {
       return;
     }
     const id = big[0]![0];
+    // во время тревоги отклонение в сторону утечки — её отклик, а не отказ: утечку у конца трубы видит почти
+    // один расходомер, и исключать его нельзя — без него не будет ни места, ни баланса для распознавания снятия
+    if (this.alarmed && (this.prep.signs.get(id) ?? 0) * (this.zHist.get(id)?.mean() ?? 0) > 0) {
+      this.faultSince.clear();
+      return;
+    }
     const since = this.faultSince.get(id) ?? t;
     this.faultSince.set(id, since);
     if (t - since >= this.faultHoldSec) {

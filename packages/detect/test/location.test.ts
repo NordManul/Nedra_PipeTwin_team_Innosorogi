@@ -166,24 +166,25 @@ describe('несколько утечек подряд и их устранен�
 });
 
 describe('одновременные утечки и снятие всех сразу', () => {
-  function runScenario(events: Array<{ t: number; id: string; x: number; size: number }>, removals: Record<number, string[]>, dur: number) {
+  function runScenario(events: Array<{ t: number; id: string; x: number; size: number }>, removals: Record<number, string[]>, dur: number, seed = 4) {
     const cfg = defaultConfig();
     const truth = structuredClone(cfg);
     truth.geometry.roughness = 8e-5;
-    const src = new SimulatedSource(truth, { seed: 4, events: events.map((e) => ({ t: e.t, type: 'leak' as const, id: e.id, x: e.x, sizePct: e.size, rampSec: 0 })), durationSec: dur });
+    const src = new SimulatedSource(truth, { seed, events: events.map((e) => ({ t: e.t, type: 'leak' as const, id: e.id, x: e.x, sizePct: e.size, rampSec: 0 })), durationSec: dur });
     const twin = createTwin(cfg);
     const spec = readJson<Parameters<typeof createDetector>[0]>('configs/strategy.selected.json');
     const det = createDetector({ ...spec, warmupSec: 60 });
     det.reset(ctxFor(cfg, twin));
-    const timeline: Array<{ t: number; leaks: DetectorOutput['leaks'] }> = [];
+    const timeline: Array<{ t: number; leaks: DetectorOutput['leaks']; unhealthy: string[] }> = [];
     while (!src.done) {
       for (const f of src.step(0.1)) {
         for (const [tt, ids] of Object.entries(removals)) if (Math.abs(f.t - Number(tt)) < 0.05) for (const id of ids) src.removeLeak(id);
         const o = det.update(f, twin.predict(f));
-        timeline.push({ t: f.t, leaks: o.leaks ?? [] });
+        timeline.push({ t: f.t, leaks: o.leaks ?? [], unhealthy: o.unhealthySensors ?? [] });
       }
     }
-    return (t: number) => timeline.find((x) => x.t >= t)!.leaks ?? [];
+    const at = (t: number) => timeline.find((x) => x.t >= t)!.leaks ?? [];
+    return Object.assign(at, { unhealthy: () => new Set(timeline.flatMap((x) => x.unhealthy)) });
   }
 
   it('две одновременные утечки (км 31 и 12) делятся на две с верными зонами; снятые по одной — норма', () => {
@@ -214,5 +215,16 @@ describe('одновременные утечки и снятие всех ср�
     );
     expect(at(1150).length).toBe(3);
     expect(at(1440).length).toBe(0);
+  });
+
+  it('утечка у входа (км 3) после другой: расходомер на входе не объявляется отказавшим, обе снимаются', () => {
+    // её почти один видит расходомер на входе; прежде монитор отказов исключал его — утечка терялась,
+    // а без баланса расходов снятие не распознавалось, и первая авария висела
+    const at = runScenario([{ t: 90, id: 'A', x: 31000, size: 3 }, { t: 330, id: 'B', x: 3000, size: 3 }], { 830: ['A', 'B'] }, 1060, 5);
+    const both = at(800);
+    expect(both.length).toBe(2);
+    expect(both.some((l) => l.locationInterval![0] <= 3000 && l.locationInterval![1] >= 3000)).toBe(true);
+    expect(at.unhealthy().has('q_in')).toBe(false);
+    expect(at(1050).length).toBe(0);
   });
 });
