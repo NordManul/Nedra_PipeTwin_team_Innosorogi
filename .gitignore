@@ -27,3 +27,4 @@ results/runs*.csv
 .vscode/*
 !.vscode/extensions.json
 results/ml/*.jsonl
+results/multi/*.jsonl
