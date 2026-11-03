@@ -508,6 +508,15 @@ export type DetectorName =
   | 'pca'; //        D9 — PCA и статистика SPE, без физики
 
 /** Методы локализации (ТЗ, WP-B4). */
+/**
+ * Стадия оценки места, от грубой к точной:
+ *  segment — отрезок вокруг датчика, первым увидевшего спад давления (сразу при тревоге);
+ *  wave    — по разнице времён прихода волны (секунды, если фронт виден);
+ *  profile — по профилю давлений после затухания волн (десятки секунд);
+ *  ml      — по обученной на симуляторе модели (k ближайших соседей).
+ */
+export type LocationStage = 'segment' | 'wave' | 'profile' | 'ml';
+
 export type LocalizationMethod =
   | 'hgl' //         L1 — пересечение линий гидравлического уклона
   | 'lsq' //         L2 — МНК-подбор (x, q_leak) по чувствительностям twin
@@ -576,8 +585,13 @@ export interface DetectorOutput {
   threshold?: number;
   /** Оценка места, м от входа. */
   location?: number;
-  /** Интервал неопределённости места [lo, hi], м. */
+  /**
+   * Интервал места [lo, hi], м: истинное место внутри с вероятностью ≈ 90% (откалибровано стендом).
+   * Сразу при тревоге — широкий отрезок, затем сужается по мере накопления данных (locationStage).
+   */
   locationInterval?: [lo: number, hi: number];
+  /** Откуда текущая оценка места — для оператора: насколько ей можно доверять. */
+  locationStage?: LocationStage;
   /** Оценка расхода утечки, м³/с. */
   leakRate?: number;
   /** Нормированные невязки z = r/σ по датчикам — для графиков и объяснения. */
@@ -733,6 +747,11 @@ export const RUNS_CSV_COLUMNS = [
   'split',
   'noleak_s',
   'ttd_min_phys',
+  'loc_lo',
+  'loc_hi',
+  'loc_stage',
+  'loc0_lo',
+  'loc0_hi',
 ] as const;
 
 /**
@@ -775,6 +794,13 @@ export interface RunRecord {
   noleak_s?: number | null;
   /** Физический минимум времени детекции: расстояние до ближайшего датчика давления / a, с. */
   ttd_min_phys?: number | null;
+  /** Интервал места к концу прогона [loc_lo, loc_hi], м, и его стадия (LocationStage). */
+  loc_lo?: number | null;
+  loc_hi?: number | null;
+  loc_stage?: LocationStage | null;
+  /** Интервал места в момент тревоги, м — первая оценка, которую видит оператор. */
+  loc0_lo?: number | null;
+  loc0_hi?: number | null;
 }
 
 // ============================================================================
@@ -792,7 +818,7 @@ export interface EventCard {
   /** Уверенность 0..1, откалиброванная по стенду. */
   confidence: number;
   detector: string;
-  location?: { x: number; interval?: [lo: number, hi: number] };
+  location?: { x: number; interval?: [lo: number, hi: number]; stage?: LocationStage };
   /** Расход утечки, м³/с. */
   leakRate?: number;
   /** Доля от расхода на входе, 0..1. */
