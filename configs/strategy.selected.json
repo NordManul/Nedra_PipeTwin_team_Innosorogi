@@ -9,15 +9,15 @@
   "localization": "lsq",
   "signatureFilter": true,
   "warmupSec": 60,
-  "selectedAt": "2026-11-03T12:08:20Z",
+  "selectedAt": "2026-11-03T14:49:01Z",
   "evidence": {
     "ttd_med_s": 11.2,
     "ttd_p95_s": 38.51,
     "mdl_pct": 5.0,
     "far_per_day": 0.0,
-    "loc_med_m": 420.0,
+    "loc_med_m": 424.0,
     "pod_5pct": 0.988
   },
   "runnerUp": "cusum",
-  "runsHash": "833b19cf9c8ead527be8dcd0ba1c105663ec0899"
+  "runsHash": "de5268ee08c5c4a9faf262295f7a52a8e741208f"
 }
