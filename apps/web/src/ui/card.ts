@@ -5,6 +5,7 @@
 import type { EventCard } from '@pipetwin/core/contracts';
 import { clear, download, h } from './dom';
 import { fmt } from './format';
+import { STAGE_NAMES } from './operator';
 
 const CLASS_NAMES: Record<string, string> = {
   leak: 'Утечка',
@@ -50,7 +51,7 @@ export class CardPanel {
     this.host.append(head);
     const cur = this.cards[0];
     if (!cur) {
-      this.host.append(h('p', { class: 'muted' }, 'Событий нет. Поставьте утечку кликом по трубе или смените режим.'));
+      this.host.append(h('p', { class: 'muted' }, 'Событий нет.'));
       return;
     }
     this.host.append(this.renderCard(cur, true));
@@ -63,13 +64,18 @@ export class CardPanel {
 
   private renderCard(c: EventCard, big: boolean): HTMLElement {
     const ack = this.acknowledged.has(c.id) || c.acknowledgedAt !== undefined;
+    const iv = c.location?.interval;
     const loc = c.location
-      ? `км ${fmt(c.location.x / 1000, 1)}${c.location.interval ? ` ± ${fmt((c.location.interval[1] - c.location.interval[0]) / 2000, 1)}` : ''}`
+      ? iv
+        ? `км ${fmt(iv[0] / 1000, 1)}–${fmt(iv[1] / 1000, 1)} (оценка км ${fmt(c.location.x / 1000, 1)})`
+        : `км ${fmt(c.location.x / 1000, 1)}`
       : 'уточняется (ждём прихода волн)';
+    const stage = c.location?.stage ? STAGE_NAMES[c.location.stage] : '';
     const isLeak = c.eventClass === 'leak' || c.eventClass === 'unknown';
     const rows: Array<[string, string]> = isLeak
       ? [
-      ['Место', loc],
+      ['Зона поиска (≈90%)', loc],
+      ['Как определена', stage || '—'],
       ['Расход утечки', c.leakRate !== undefined ? `${fmt(c.leakRate * 3600, 1)} м³/ч${c.leakFraction !== undefined ? ` (${fmt(c.leakFraction * 100, 1)}% расхода)` : ''}` : '—'],
       ['Потери к тревоге', c.vLoss !== undefined ? `${fmt(c.vLoss, 2)} м³` : '—'],
       ['Прогноз за 30 мин бездействия', c.vLossForecast30min !== undefined ? `${fmt(c.vLossForecast30min, 1)} м³` : '—'],

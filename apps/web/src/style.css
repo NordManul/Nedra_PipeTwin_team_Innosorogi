@@ -1,35 +1,27 @@
+/*
+ * Стиль пульта СОУ: спокойная графитовая палитра (ISA-101 «high performance HMI»),
+ * цвет — только для отклонений (жёлтый), аварий (красный) и информации (голубой).
+ * Тренажёр (панель инструктора) отделён янтарной штриховкой: оператор его не видит.
+ */
 :root {
-  --bg: #f4f5f7;
-  --panel: #ffffff;
-  --ink: #1f2937;
-  --muted: #6b7280;
-  --line: #e5e7eb;
-  --accent: #2563eb;
-  --ok: #059669;
-  --warn: #b45309;
-  --bad: #dc2626;
-  --ok-bg: #ecfdf5;
-  --warn-bg: #fffbeb;
-  --bad-bg: #fef2f2;
-  color-scheme: light;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0f1115;
-    --panel: #181b22;
-    --ink: #e5e7eb;
-    --muted: #9ca3af;
-    --line: #2a2f3a;
-    --accent: #60a5fa;
-    --ok: #34d399;
-    --warn: #fbbf24;
-    --bad: #f87171;
-    --ok-bg: #0b2a20;
-    --warn-bg: #2a2410;
-    --bad-bg: #2d1414;
-    color-scheme: dark;
-  }
+  --bg: #121519;
+  --panel: #1b1f24;
+  --panel-2: #22272e;
+  --ink: #d0d7de;
+  --muted: #8b949e;
+  --line: #30363d;
+  --line-2: #444c56;
+  --accent: #58a6ff;
+  --ok: #3fb950;
+  --warn: #d29922;
+  --bad: #f85149;
+  --ok-bg: rgba(63, 185, 80, 0.1);
+  --warn-bg: rgba(210, 153, 34, 0.12);
+  --bad-bg: rgba(248, 81, 73, 0.12);
+  --trainer: #e3b341;
+  --font: 'IBM Plex Sans', 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  color-scheme: dark;
 }
 
 * {
@@ -40,53 +32,186 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font: 14px/1.4 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font: 13px/1.4 var(--font);
 }
+
+/* ---------------------------------------------------------------- шапка */
 
 header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  padding: 10px 16px;
-  background: var(--panel);
+  padding: 6px 14px;
+  background: #0d1014;
   border-bottom: 1px solid var(--line);
   position: sticky;
   top: 0;
   z-index: 5;
+  flex-wrap: wrap;
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
 }
 
 .brand strong {
-  font-size: 18px;
+  font-size: 15px;
+  letter-spacing: 0.04em;
 }
 
-.status {
-  font-variant-numeric: tabular-nums;
+.brand .site {
   color: var(--muted);
 }
 
+.chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.chip b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.chip::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+
+.chip.warn::before {
+  background: var(--warn);
+}
+
+.chip.bad::before {
+  background: var(--bad);
+}
+
+.chip.idle::before {
+  background: var(--muted);
+}
+
+.clock {
+  font: 600 14px var(--mono);
+  color: var(--ink);
+}
+
+/* ---------------------------------------------------------------- строка аварии */
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--line);
+  min-height: 36px;
+  background: var(--panel);
+  color: var(--muted);
+}
+
+.banner .pri {
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.banner .msg {
+  flex: 1;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.banner.pr-alarm {
+  background: #3a1215;
+  border-bottom-color: var(--bad);
+}
+
+.banner.pr-alarm .pri {
+  color: #fff;
+  background: var(--bad);
+  padding: 1px 8px;
+}
+
+.banner.pr-warning {
+  background: #33270c;
+  border-bottom-color: var(--warn);
+}
+
+.banner.pr-warning .pri {
+  color: #111;
+  background: var(--warn);
+  padding: 1px 8px;
+}
+
+.banner.pr-info .pri {
+  color: var(--accent);
+}
+
+.banner.unack.pr-alarm .pri,
+tr.unack.pr-alarm .pri {
+  animation: blink 1s steps(2, start) infinite;
+}
+
+@keyframes blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+/* ---------------------------------------------------------------- раскладка */
+
 main {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr) 360px;
-  gap: 12px;
-  padding: 12px 16px;
+  grid-template-columns: 300px minmax(0, 1fr) 420px;
+  gap: 10px;
+  padding: 10px 12px;
   align-items: start;
 }
 
-@media (max-width: 1280px) {
+body.no-trainer main {
+  grid-template-columns: minmax(0, 1fr) 420px;
+}
+
+body.no-trainer .trainer-only {
+  display: none !important;
+}
+
+@media (max-width: 1400px) {
   main {
     grid-template-columns: 280px minmax(0, 1fr);
+  }
+  body.no-trainer main {
+    grid-template-columns: minmax(0, 1fr);
   }
   .col-right {
     grid-column: 1 / -1;
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 10px;
   }
 }
 
-@media (max-width: 820px) {
-  main {
+@media (max-width: 860px) {
+  main,
+  body.no-trainer main {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -96,20 +221,25 @@ main {
 .col-center {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
 }
 
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 10px 12px;
+  border-radius: 3px;
+  padding: 8px 10px;
 }
 
-.panel h3 {
-  margin: 0 0 8px;
-  font-size: 14px;
+.panel h3,
+.section-title {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 .panel-head {
@@ -117,6 +247,36 @@ main {
   justify-content: space-between;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+}
+
+.panel-head .row {
+  margin: 0;
+}
+
+/* тренажёр: янтарная штриховка по краю, чтобы не спутать с экраном оператора */
+.trainer {
+  border: 1px dashed var(--trainer);
+  background: repeating-linear-gradient(135deg, rgba(227, 179, 65, 0.03) 0 10px, transparent 10px 20px), var(--panel);
+}
+
+.trainer-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--trainer);
+  margin: 0 0 6px;
+}
+
+.trainer-head::before {
+  content: 'ТРЕНАЖЁР';
+  background: var(--trainer);
+  color: #111;
+  padding: 0 6px;
 }
 
 .row {
@@ -124,26 +284,28 @@ main {
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
-  margin: 6px 0;
+  margin: 5px 0;
 }
 
 .field {
   display: grid;
   gap: 2px;
-  margin: 6px 0;
+  margin: 5px 0;
 }
 
 .check {
   display: block;
-  margin: 6px 0;
+  margin: 5px 0;
 }
+
+/* ---------------------------------------------------------------- элементы управления */
 
 button {
   font: inherit;
-  padding: 5px 10px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--panel);
+  padding: 4px 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 2px;
+  background: var(--panel-2);
   color: var(--ink);
   cursor: pointer;
 }
@@ -153,18 +315,18 @@ button:hover {
 }
 
 button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: #1f6feb;
+  border-color: #1f6feb;
   color: #fff;
 }
 
 button.small {
-  padding: 3px 8px;
+  padding: 2px 8px;
   font-size: 12px;
 }
 
 button:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: default;
 }
 
@@ -173,9 +335,9 @@ select,
 textarea {
   font: inherit;
   color: var(--ink);
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--line-2);
+  border-radius: 2px;
   padding: 3px 6px;
   max-width: 100%;
 }
@@ -183,6 +345,7 @@ textarea {
 input[type='range'] {
   padding: 0;
   width: 100%;
+  accent-color: var(--trainer);
 }
 
 textarea {
@@ -198,6 +361,7 @@ textarea {
 }
 
 .mono {
+  font-family: var(--mono);
   font-variant-numeric: tabular-nums;
 }
 
@@ -205,39 +369,113 @@ textarea {
   color: var(--warn);
 }
 
+/* ---------------------------------------------------------------- мнемосхема и воронка */
+
+canvas.mimic,
+canvas.funnel,
+canvas.schematic {
+  display: block;
+  width: 100%;
+}
+
+canvas.funnel {
+  margin-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+canvas.schematic {
+  cursor: crosshair;
+}
+
+.legend {
+  margin-top: 4px;
+  line-height: 1.8;
+}
+
+.lg {
+  display: inline-block;
+  width: 14px;
+  height: 9px;
+  vertical-align: middle;
+  margin-right: 2px;
+  border: 1px solid var(--line-2);
+}
+
+.lg.zone {
+  background: rgba(248, 81, 73, 0.3);
+  border-color: var(--bad);
+}
+
+.lg.pt {
+  width: 9px;
+  transform: rotate(45deg);
+  background: var(--bad);
+  border-color: #fff;
+}
+
+.lg.warn {
+  border: 2px solid var(--warn);
+}
+
+.lg.bad {
+  border: 2px solid var(--bad);
+}
+
+.lg.st-segment {
+  background: rgba(210, 153, 34, 0.5);
+}
+
+.lg.st-wave {
+  background: rgba(88, 166, 255, 0.6);
+}
+
+.lg.st-profile {
+  background: rgba(248, 81, 73, 0.7);
+}
+
+.lg.st-ml {
+  background: rgba(163, 113, 247, 0.7);
+}
+
+.legend .grad {
+  display: inline-block;
+  width: 60px;
+  height: 8px;
+  vertical-align: middle;
+  background: linear-gradient(90deg, hsl(240, 75%, 50%), hsl(120, 75%, 50%), hsl(0, 75%, 50%));
+}
+
+/* ---------------------------------------------------------------- секундомер тренажёра */
+
 .stopwatch {
-  border-radius: 8px;
-  padding: 12px 16px;
+  padding: 8px 10px;
   border: 1px solid var(--line);
-  background: var(--panel);
+  background: var(--panel-2);
   font-variant-numeric: tabular-nums;
+  margin-top: 6px;
 }
 
 .stopwatch .big {
-  font-size: 26px;
+  font-size: 18px;
   font-weight: 700;
 }
 
 .stopwatch.ok {
-  background: var(--ok-bg);
   border-color: var(--ok);
+  background: var(--ok-bg);
 }
 
 .stopwatch.wait {
-  background: var(--warn-bg);
   border-color: var(--warn);
+  background: var(--warn-bg);
 }
 
-canvas.schematic {
-  display: block;
-  width: 100%;
-  cursor: crosshair;
-}
+/* ---------------------------------------------------------------- тренды */
 
 .charts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
-  gap: 12px;
+  gap: 10px;
 }
 
 @media (max-width: 520px) {
@@ -249,20 +487,23 @@ canvas.schematic {
 .chart {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px 8px 0;
+  border-radius: 3px;
+  padding: 6px 6px 0;
   min-width: 0;
   overflow: hidden;
 }
 
 .chart-title {
+  font-size: 11px;
   font-weight: 600;
-  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
   margin: 0 4px 4px;
 }
 
 .uplot {
-  font-family: inherit;
+  font-family: var(--font);
   color: var(--ink);
 }
 
@@ -270,12 +511,13 @@ canvas.schematic {
   font-size: 11px;
 }
 
+/* ---------------------------------------------------------------- карточка события */
+
 .card {
-  border-left: 4px solid var(--muted);
+  border-left: 3px solid var(--muted);
   padding: 6px 10px;
   margin: 6px 0;
-  background: var(--bg);
-  border-radius: 6px;
+  background: var(--panel-2);
 }
 
 .card.sev-critical {
@@ -297,12 +539,18 @@ canvas.schematic {
   margin: 8px 0;
 }
 
+.card .zone {
+  font: 600 16px var(--mono);
+  color: var(--bad);
+}
+
 .small-card {
   font-size: 12px;
 }
 
 table.kv,
-table.params {
+table.params,
+table.alarms {
   border-collapse: collapse;
   width: 100%;
   font-size: 12px;
@@ -310,11 +558,61 @@ table.params {
 
 table.kv td,
 table.params td,
-table.params th {
-  padding: 2px 6px 2px 0;
+table.params th,
+table.alarms td,
+table.alarms th {
+  padding: 3px 6px 3px 0;
   border-bottom: 1px solid var(--line);
   text-align: left;
   vertical-align: top;
+}
+
+table.params th,
+table.alarms th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 11px;
+}
+
+table.kv td:first-child {
+  color: var(--muted);
+  width: 45%;
+}
+
+/* журнал сигналов */
+.alarm-scroll {
+  max-height: 260px;
+  overflow: auto;
+}
+
+table.alarms .pri {
+  font-weight: 700;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+tr.pr-alarm .pri {
+  color: var(--bad);
+}
+
+tr.pr-warning .pri {
+  color: var(--warn);
+}
+
+tr.pr-info .pri {
+  color: var(--accent);
+}
+
+tr.pr-alarm.active td {
+  background: var(--bad-bg);
+}
+
+tr.pr-warning.active td {
+  background: var(--warn-bg);
+}
+
+tr:not(.active) td {
+  color: var(--muted);
 }
 
 .scroll {
@@ -331,9 +629,8 @@ table.params th {
 }
 
 .bar {
-  height: 8px;
+  height: 6px;
   background: var(--line);
-  border-radius: 4px;
   overflow: hidden;
 }
 
@@ -345,7 +642,7 @@ table.params th {
 .badge {
   display: inline-block;
   padding: 0 6px;
-  border-radius: 10px;
+  border-radius: 2px;
   font-size: 11px;
   white-space: nowrap;
 }
@@ -361,7 +658,7 @@ table.params th {
 }
 
 .st-calibrated {
-  background: rgba(37, 99, 235, 0.12);
+  background: rgba(88, 166, 255, 0.12);
   color: var(--accent);
 }
 
@@ -369,13 +666,15 @@ details.sub {
   margin: 8px 0;
 }
 
-details.sub summary {
+details.sub summary,
+details.history summary {
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 pre.log {
-  font: 11px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 11px/1.35 var(--mono);
   white-space: pre-wrap;
   max-height: 180px;
   overflow: auto;
@@ -395,35 +694,20 @@ pre.log {
 }
 
 .toast {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-left: 4px solid var(--accent);
-  border-radius: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--line-2);
+  border-left: 3px solid var(--accent);
   padding: 8px 12px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 }
 
 .toast.error {
   border-left-color: var(--bad);
 }
 
-.legend {
-  margin-top: 4px;
-}
-
-.legend .grad {
-  display: inline-block;
-  width: 60px;
-  height: 8px;
-  border-radius: 4px;
-  vertical-align: middle;
-  background: linear-gradient(90deg, hsl(240, 75%, 50%), hsl(120, 75%, 50%), hsl(0, 75%, 50%));
-}
-
 .progress {
-  height: 6px;
+  height: 4px;
   background: var(--line);
-  border-radius: 3px;
   overflow: hidden;
   margin: 6px 0;
 }
@@ -435,13 +719,18 @@ pre.log {
 
 .timeline input[type='range'] {
   flex: 1;
+  accent-color: var(--accent);
 }
 
 tr.bad td {
   color: var(--bad);
 }
 
-/* режим презентации: крупный секундомер и схема, без боковых панелей */
+tr.dev td {
+  color: var(--warn);
+}
+
+/* режим презентации: схема и тренды крупно, без боковых панелей */
 body.present main {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -452,9 +741,5 @@ body.present .col-right {
 }
 
 body.present .stopwatch .big {
-  font-size: 48px;
-}
-
-body.present .stopwatch {
-  font-size: 20px;
+  font-size: 34px;
 }

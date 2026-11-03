@@ -30,7 +30,7 @@ export class Schematic {
   private cfg: PipelineConfig | null = null;
   private state: SchematicState = { leaks: [], unhealthy: [], alarm: false };
   private hoverX: number | null = null;
-  private dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  private dark = true;
 
   constructor(private readonly host: HTMLElement, private readonly onPick: (x: number) => void) {
     this.canvas = document.createElement('canvas');
@@ -89,7 +89,7 @@ export class Schematic {
     const cfg = this.cfg;
     const cv = this.canvas;
     const W = this.host.clientWidth;
-    const H = 210;
+    const H = 190;
     const dpr = window.devicePixelRatio || 1;
     if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) {
       cv.width = Math.round(W * dpr);
