@@ -592,6 +592,7 @@ interface DetectorRequirements {
 | --- | --- | --- |
 | `weights` | 0,35 / 0,15 / 0,25 / 0,15 / 0,10 | Веса N(TTD_med), N(TTD_p95), N(MDL), N(LOC_med), N(FAR) в счёте S; меньше — лучше |
 | `ttdMinLeakFraction` | 0,02 | Медиана TTD — по утечкам от 2% расхода |
+| `locMinLeakFraction` | 0,05 | Медиана ошибки места — по утечкам от 5%: их ловят все прошедшие фильтры стратегии, сравнение на одном наборе |
 | `filters.farPerDayMax` | 2 | FAR на тесте, в сутки |
 | `filters.podMin`, `podLeakFraction` | 0,9; 0,05 | POD ≥ 90% для утечек от 5% |
 | `filters.regimeFalseAlarmsMax` | 0 | Ложные тревоги на режимных событиях E5 |
