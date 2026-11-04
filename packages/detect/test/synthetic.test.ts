@@ -57,6 +57,13 @@ describe('T-B02 реакция на ступеньку 3σ', () => {
     for (const v of [d1, d2, d3]) expect(v).toBeGreaterThanOrEqual(0);
     expect(d2!).toBeLessThan(d1!);
   }, 60_000);
+  it('D10 (GLR) и D11 (адаптивный EWMA) срабатывают; крупный скачок D11 ловит не медленнее D3 (EWMA)', () => {
+    const [glr, aewma] = ['glr', 'aewma'].map((n) => ttd(tuned(n)));
+    for (const v of [glr, aewma]) expect(v).toBeGreaterThanOrEqual(0);
+    // скачок 6σ на каждом канале: Хьюбер пропускает его почти целиком, EWMA — по λ за отсчёт
+    const big = (spec: StrategySpec) => run(spec, cfg, synth(cfg, { durationSec: 120, seed: 7, shift: leakShift(6, 100) })).alarms.find((t) => t >= 100)! - 100;
+    expect(big(tuned('aewma'))).toBeLessThanOrEqual(big(tuned('ewma')));
+  }, 60_000);
 });
 
 describe('T-B03 независимость от единиц', () => {
