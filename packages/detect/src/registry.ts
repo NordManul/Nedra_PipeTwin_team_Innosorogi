@@ -6,7 +6,7 @@
  */
 import type { DetectorRequirements } from '@pipetwin/core/contracts';
 import type { DetectorMeta } from './types';
-import { AewmaStat, CusumStat, EwmaStat, GlrStat, ThresholdStat } from './detectors/residual';
+import { AewmaStat, CusumStat, EwmaStat, GlrStat, SprtStat, ThresholdStat } from './detectors/residual';
 import { MassBalanceStat } from './detectors/mass-balance';
 import { NpwStat } from './detectors/npw';
 import { KalmanStat } from './detectors/kalman';
@@ -65,6 +65,15 @@ export const REGISTRY: Record<string, DetectorMeta> = {
     thresholdParam: 'L',
     simplicity: 2.5,
     create: (sc, p) => new AewmaStat(sc, p),
+  },
+  sprt: {
+    code: 'D12',
+    title: 'SPRT на балансе расходов (API RP 1130)',
+    requires: { sensors: [{ kind: 'q', at: 'both-ends' }], needsTwin: true },
+    defaults: { size1: 0.005, size2: 0.01, size3: 0.02, size4: 0.05, h: 15 },
+    thresholdParam: 'h',
+    simplicity: 4.5,
+    create: (sc, p) => new SprtStat(sc, p),
   },
   'mass-balance': {
     code: 'D4',

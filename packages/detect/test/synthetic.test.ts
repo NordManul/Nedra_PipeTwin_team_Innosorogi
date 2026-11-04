@@ -141,13 +141,13 @@ describe('T-B07 отказ одного датчика', () => {
 });
 
 describe('T-B08 нет нужных датчиков', () => {
-  it('без расходомеров D4, D6 выбывают с причиной, остальные работают', () => {
+  it('без расходомеров D4, D6, D12 выбывают с причиной, остальные работают', () => {
     const cfg = defaultConfig();
     cfg.sensors = cfg.sensors.filter((s) => s.kind !== 'q');
     const ctx = ctxFor(cfg, new FakeTwin(cfg));
     for (const name of NAMES) {
       const c = createDetector(defaultStrategy(name)).check(ctx);
-      if (name === 'mass-balance' || name === 'kalman') {
+      if (name === 'mass-balance' || name === 'kalman' || name === 'sprt') {
         expect(c.ok, name).toBe(false);
         expect(c.reasons.join(' ')).toMatch(/расхода/);
       } else expect(c.ok, `${name}: ${c.reasons}`).toBe(true);

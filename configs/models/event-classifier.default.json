@@ -1,0 +1,52 @@
+{
+ "kind": "tree",
+ "version": 1,
+ "features": [
+  "dominance",
+  "othersAgree",
+  "leakSum",
+  "flowMoved",
+  "flowOpposite",
+  "waves",
+  "fitExplained"
+ ],
+ "root": {
+  "feature": "fitExplained",
+  "threshold": 0.7964,
+  "le": {
+   "p": 0,
+   "n": 72
+  },
+  "gt": {
+   "feature": "waves",
+   "threshold": 0.125,
+   "le": {
+    "feature": "othersAgree",
+    "threshold": 0.2553,
+    "le": {
+     "p": 0.10896817743490841,
+     "n": 41
+    },
+    "gt": {
+     "p": 1,
+     "n": 6
+    }
+   },
+   "gt": {
+    "feature": "othersAgree",
+    "threshold": -0.0148,
+    "le": {
+     "p": 0.936205468102734,
+     "n": 4
+    },
+    "gt": {
+     "p": 1,
+     "n": 221
+    }
+   }
+  }
+ },
+ "threshold": 0.5,
+ "costLeak": 10,
+ "trainedOn": "344 событий симулятора (утечки 231, отказы датчиков 113), 2026-11-04"
+}

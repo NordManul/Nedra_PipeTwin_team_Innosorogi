@@ -10,3 +10,4 @@ export { LsqLocator, locateHgl, type LocationEstimate } from './localize';
 export { DropTracker, type WaveSource } from './detectors/npw';
 export { SUM, type PreparedSample, type Statistic, type StatOut, type StatContext, type DetectorMeta } from './types';
 export { KnnLocator, featureVector, quantile, type KnnLocatorModel, type LocatorFeatures } from './ml/knn-locator';
+export { eventFeatures, leakProbability, EVENT_FEATURES, type EventClassifierModel, type EventFeatureName, type EventTreeNode } from './leaks/event-features';

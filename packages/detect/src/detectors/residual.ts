@@ -193,3 +193,56 @@ export class AewmaStat implements Statistic {
     this.onset.clear();
   }
 }
+
+/**
+ * D12: SPRT на балансе расходов, как в промышленных системах (API RP 1130, статистический баланс объёма).
+ * Баланс — разница невязок расходомеров на входе и на выходе: двойник уже учёл накопление в трубе,
+ * поэтому при утечке q баланс сдвигается на q (вход растёт, выход падает). Параллельно несколько
+ * последовательных тестов отношения вероятностей — по одному на размер утечки (доля номинального
+ * расхода из sizes): S ← max(0, S + m·(x − m/2)), x и m — в долях шума баланса. Тест со сбросом в ноль —
+ * это CUSUM Пейджа; порог h — логарифм отношения правдоподобия, общий для всех размеров.
+ */
+export class SprtStat implements Statistic {
+  private readonly S: number[];
+  private readonly qIn: string | undefined;
+  private readonly qOut: string | undefined;
+  private readonly sizes: number[];
+  private quietAt: number | undefined;
+  constructor(private readonly sc: StatContext, private readonly p: DetectorParams) {
+    const L = sc.ctx.config.geometry.length;
+    this.qIn = sc.ctx.sensors.find((v) => v.kind === 'q' && v.x <= 1)?.id;
+    this.qOut = sc.ctx.sensors.find((v) => v.kind === 'q' && v.x >= L - 1)?.id;
+    this.sizes = [p.size1!, p.size2!, p.size3!, p.size4!].filter((v) => v > 0);
+    this.S = this.sizes.map(() => 0);
+  }
+  update(s: PreparedSample): StatOut {
+    const h = this.p.h!;
+    const zi = this.qIn ? s.z[this.qIn] : undefined;
+    const zo = this.qOut ? s.z[this.qOut] : undefined;
+    const si = this.qIn ? this.sc.prep.sigmaOf(this.qIn) : undefined;
+    const so = this.qOut ? this.sc.prep.sigmaOf(this.qOut) : undefined;
+    const Q = this.sc.prep.nominalFlow;
+    if (zi === undefined || zo === undefined || !si || !so || !(Q > 0)) return { score: 0, threshold: h };
+    const sb = Math.hypot(si, so);
+    const b = zi * si - zo * so;
+    const x = b / sb;
+    let best = 0;
+    for (let k = 0; k < this.sizes.length; k++) {
+      const m = (this.sizes[k]! * Q) / sb;
+      this.S[k] = Math.max(0, this.S[k]! + m * (x - m / 2));
+      best = Math.max(best, this.S[k]!);
+    }
+    if (best === 0 || this.quietAt === undefined) this.quietAt = s.t;
+    return {
+      score: best,
+      threshold: h,
+      leakRate: Math.max(0, b),
+      channels: { [this.qIn!]: best / 2, [this.qOut!]: best / 2 },
+      onset: this.quietAt,
+    };
+  }
+  rearm(): void {
+    this.S.fill(0);
+    this.quietAt = undefined;
+  }
+}

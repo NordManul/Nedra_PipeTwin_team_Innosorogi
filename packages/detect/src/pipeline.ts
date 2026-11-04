@@ -33,6 +33,7 @@ import { KnnLocator, type KnnLocatorModel, type LocatorFeatures } from './ml/knn
 import { ARRIVAL_SUSTAIN_SEC, ArrivalTracker, arrivalSources, twoWaves, type ArrivalSources } from './leaks/arrivals';
 import { LEAK_GUARD_SCALE, LEAK_WINDOW_SEC, leakGuardFactor, RecoveryWatcher, SettleTracker } from './leaks/recovery';
 import { acceptPair, fitOneOrTwo, ratesAt, SPLIT_MIN_SEP, splitDelta, type Shapes } from './leaks/split';
+import { eventFeatures, leakProbability, type EventClassifierModel, type EventFeatureName } from './leaks/event-features';
 
 export interface PipelineOptions {
   preprocess?: Partial<PreprocessOptions>;
@@ -55,6 +56,11 @@ export interface PipelineOptions {
   silent?: boolean;
   /** ML-модель места (configs/models/locator.*.json); без неё стадия ml не используется. */
   mlLocator?: KnnLocatorModel;
+  /**
+   * ML-модель «утечка или отказ датчика» (configs/models/event-classifier.*.json, H-B19): перед
+   * подтверждением утечки событие с малой вероятностью утечки считается отказом датчика.
+   */
+  eventClassifier?: EventClassifierModel;
 }
 
 /** Подавлять тревогу как смену режима только при уверенной сигнатуре. */
@@ -149,6 +155,8 @@ export class DetectionPipeline implements Detector {
   private multiKey = '';
   /** Установился ли отклик текущего события. */
   private settle = new SettleTracker();
+  /** Уровень сырых замеров «до события» (момент тревоги) и шум — для признаков события. */
+  private alarmPre = new Map<string, { pre: number; noise: number; n: number }>();
   private readonly sigma = (id: string): number | undefined => this.prep.sigmaOf(id);
   private leakGuardUntil = -Infinity;
   private leakGuardFactor = 1.5;
@@ -681,6 +689,7 @@ export class DetectionPipeline implements Detector {
         this.alarmStart = s.t;
         this.leakId = `L${++this.leakSeq}`;
         this.arrival.clear();
+        this.captureAlarmPre();
         this.arrival.capture(s.t, this.ctx.sensors, this.rawHist, (n) => this.preWindow(n), (id) => this.prep.rawStats(id)?.noise, this.sc.binSec);
         this.segByArrival = false;
         this.segEst = this.segmentAtAlarm(s.t);
@@ -812,6 +821,60 @@ export class DetectionPipeline implements Detector {
     return twoWaves(arrivalSources(pts, this.ctx.config.geometry.length, this.sc.waveSpeed, SPLIT_MIN_SEP));
   }
 
+  /** В момент тревоги: средний сырой замер «до события» по всем датчикам. */
+  private captureAlarmPre(): void {
+    this.alarmPre.clear();
+    for (const [id, w] of this.rawHist) {
+      const win = this.preWindow(w.length);
+      const noise = this.prep.rawStats(id)?.noise;
+      if (win && noise) this.alarmPre.set(id, { pre: w.meanRange(win[0], win[1]), noise, n: win[1] - win[0] });
+    }
+  }
+
+  /** Изменение сырого замера с начала события (среднее за 10 с минус «до»), в долях шума разности. */
+  private rawChange(id: string | undefined): number | undefined {
+    if (!id) return undefined;
+    const a = this.alarmPre.get(id);
+    const w = this.rawHist.get(id);
+    if (!a || !w) return undefined;
+    const n = Math.min(w.length, Math.round(LEAK_WINDOW_SEC / this.sc.binSec));
+    if (n < 2) return undefined;
+    return (w.meanRange(0, n) - a.pre) / (a.noise * Math.sqrt(1 / n + 1 / a.n));
+  }
+
+  /** Признаки текущего события «утечка или отказ датчика» (H-B19); вне тревоги — null. */
+  eventFeatures(): Record<EventFeatureName, number> | null {
+    if (!this.alarmed) return null;
+    const delta = this.longResiduals();
+    const ids = Object.keys(delta);
+    if (!ids.length) return null;
+    const zMean: Record<string, number> = {};
+    const signs: Record<string, number> = {};
+    for (const id of ids) {
+      zMean[id] = delta[id]! / (this.prep.sigmaOf(id) ?? 1);
+      signs[id] = this.prep.signs.get(id) ?? 0;
+    }
+    const L = this.ctx.config.geometry.length;
+    // граничные для двойника — датчики давления и расхода без невязки (их замер задаёт модель)
+    const boundary = this.ctx.sensors.filter((v) => (v.kind === 'p' || v.kind === 'q') && !(v.id in zMean) && this.alarmPre.has(v.id));
+    const qIn = this.ctx.sensors.find((v) => v.kind === 'q' && v.x <= 1)?.id;
+    const qOut = this.ctx.sensors.find((v) => v.kind === 'q' && v.x >= L - 1)?.id;
+    const sh = this.shapesFor(ids);
+    const fit = sh ? fitOneOrTwo(delta, ids, sh, this.sigma, L) : null;
+    const ps = this.ctx.sensors.filter((v) => v.kind === 'p');
+    const qi = this.rawChange(qIn);
+    const qo = this.rawChange(qOut);
+    return eventFeatures({
+      zMean,
+      signs,
+      boundaryDelta: boundary.map((v) => this.rawChange(v.id) ?? 0),
+      flowDelta: { ...(qi !== undefined ? { qIn: qi } : {}), ...(qo !== undefined ? { qOut: qo } : {}) },
+      arrivals: ps.filter((v) => this.arrival.times.has(v.id)).length,
+      pressures: ps.length,
+      fitExplained: fit && fit.yy > 0 ? 1 - fit.one.cost / fit.yy : undefined,
+    });
+  }
+
   /** Отклики модели на утечку по каналам ids (локатор строится при первом обращении). */
   private shapesFor(ids: string[]): Shapes | null {
     const twin = this.ctx.twin;
@@ -831,6 +894,7 @@ export class DetectionPipeline implements Detector {
   private confirmLeak(t: number): void {
     const delta = this.longResiduals();
     if (!Object.keys(delta).length || !this.location) return;
+    if (this.rejectAsFault(t)) return;
     const ids = Object.keys(delta);
     const L = this.ctx.config.geometry.length;
     const sh = this.shapesFor(ids);
@@ -874,6 +938,52 @@ export class DetectionPipeline implements Detector {
       delta,
     });
     this.afterConfirm(t, delta);
+  }
+
+  /** Вероятность утечки по классификатору при последнем подтверждении (диагностика, стенд). */
+  lastLeakProbability: number | undefined;
+
+  /**
+   * Классификатор считает событие отказом датчика (H-B19): датчик исключается, событие закрывается
+   * без утечки, норма коротко перенастраивается. Датчик — граничный для двойника, если его замер
+   * заметно скачнул с начала события, иначе — канал с наибольшим отклонением от модели.
+   */
+  private rejectAsFault(t: number): boolean {
+    const m = this.opts.eventClassifier;
+    if (!m) return false;
+    const f = this.eventFeatures();
+    if (!f) return false;
+    const p = leakProbability(m, f);
+    this.lastLeakProbability = p;
+    if (p >= m.threshold) return false;
+    const delta = this.longResiduals();
+    let id: string | undefined;
+    let best = 5;
+    for (const v of this.ctx.sensors) {
+      if ((v.kind !== 'p' && v.kind !== 'q') || v.id in delta) continue;
+      const d = Math.abs(this.rawChange(v.id) ?? 0);
+      if (d > best) {
+        best = d;
+        id = v.id;
+      }
+    }
+    if (!id) {
+      let top = 0;
+      for (const [k, v] of Object.entries(delta)) {
+        const z = Math.abs(v / (this.prep.sigmaOf(k) ?? 1));
+        if (z > top) {
+          top = z;
+          id = k;
+        }
+      }
+    }
+    if (id) this.prep.exclude(id, 'отказ датчика (классификатор событий)');
+    this.zHist.clear();
+    this.zLong.clear();
+    this.endEvent();
+    this.prep.rebaseline(t);
+    this.setEvent('sensor-fault', t);
+    return true;
   }
 
   /** Подтвердить событие как две утечки (вклады в сумме — delta). */
