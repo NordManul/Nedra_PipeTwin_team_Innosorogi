@@ -19,7 +19,7 @@ import {
   type StrategySpec,
 } from '@pipetwin/core';
 import { createScenarioSource } from '@pipetwin/core/plant';
-import { createDetector, type KnnLocatorModel } from '@pipetwin/detect';
+import { createDetector, type EventClassifierModel, type KnnLocatorModel } from '@pipetwin/detect';
 import { framesFromFile, ReplaySource } from '@pipetwin/io';
 import { overlayLeaks } from './overlay';
 import { strategyId } from './candidates';
@@ -38,6 +38,15 @@ function loadMlLocator(): KnnLocatorModel | null {
   const f = resolve(ROOT, 'configs/models/locator.default.json');
   mlCache = existsSync(f) ? (JSON.parse(readFileSync(f, 'utf8')) as KnnLocatorModel) : null;
   return mlCache;
+}
+
+/** ML-классификатор «утечка или отказ датчика» (configs/models/event-classifier.default.json, H-B19), если обучен. */
+let evCache: EventClassifierModel | null | undefined;
+function loadEventClassifier(): EventClassifierModel | null {
+  if (evCache !== undefined) return evCache;
+  const f = resolve(ROOT, 'configs/models/event-classifier.default.json');
+  evCache = existsSync(f) ? (JSON.parse(readFileSync(f, 'utf8')) as EventClassifierModel) : null;
+  return evCache;
 }
 
 export interface RunOptions {
@@ -90,8 +99,9 @@ export async function runScenario(sc: Scenario, strategies: StrategySpec[], opts
   const excluded: ScenarioResult['excluded'] = [];
   const dets: DetState[] = [];
   const mlLocator = loadMlLocator();
+  const eventClassifier = loadEventClassifier();
   for (const spec of strategies) {
-    const det = createDetector({ ...spec, warmupSec: warmup }, mlLocator ? { mlLocator } : {});
+    const det = createDetector({ ...spec, warmupSec: warmup }, { ...(mlLocator ? { mlLocator } : {}), ...(eventClassifier ? { eventClassifier } : {}) });
     const check = det.check(ctx);
     if (!check.ok) {
       excluded.push({ scenario_id: sc.id, strategy_id: strategyId(spec), reasons: check.reasons });

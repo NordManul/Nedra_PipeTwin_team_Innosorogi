@@ -8,6 +8,7 @@
 | `fusion-threshold-ewma.json` | H-B3: слияние порога и EWMA против CUSUM, порога и EWMA по отдельности |
 | `glr-aewma.json` | H-B16, H-B17: GLR (D10) и адаптивный EWMA (D11) в нескольких вариантах, свои пороги |
 | `fusion-cusum-aewma.json` | H-B18: «ИЛИ» CUSUM и адаптивного EWMA |
+| `sprt.json` | H-B20: SPRT на балансе расходов (D12) и «ИЛИ» EWMA и SPRT |
 | `cusum-only.json` | H-B10, H-B11: CUSUM на конфигах с фильтром граничных давлений — EMA (`configs/pipeline.filter{1,2}.json`) и Калман (`configs/pipeline.kalman{1,2,5}.json`) |
 
 ```bash

@@ -13,13 +13,13 @@
  *   снятие распознано — через RECHECK_SEC после снятия активных записей столько же, сколько действующих
  *   утечек, и каждая действующая покрыта; время — до первого такого момента.
  */
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTwin, resolveConfig, type ActiveLeak, type PipelineConfigInput, type ScenarioEvent } from '../packages/core/src';
 import { Rng } from '../packages/core/src/math/rng';
 import { SimulatedSource } from '../packages/core/src/plant';
-import { createDetector, type KnnLocatorModel, type StrategySpec } from '../packages/detect/src';
+import { createDetector, type EventClassifierModel, type KnnLocatorModel, type StrategySpec } from '../packages/detect/src';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const args = process.argv.slice(2);
@@ -121,7 +121,7 @@ interface Snapshot {
   leaks: Array<Pick<ActiveLeak, 'id' | 'state'> & { lo: number; hi: number }>;
 }
 
-function runOne(sc: Scen, spec: StrategySpec, ml: KnnLocatorModel | undefined): Snapshot[] {
+function runOne(sc: Scen, spec: StrategySpec, ml: KnnLocatorModel | undefined, ev?: EventClassifierModel): Snapshot[] {
   const input = JSON.parse(readFileSync(resolve(ROOT, 'configs/pipeline.default.json'), 'utf8')) as PipelineConfigInput & { sensors: Array<Record<string, unknown>> };
   input.sensors = input.sensors.map((s) => (s.kind === 'T' ? s : { ...s, noisePct: sc.noise, noiseStd: undefined }));
   const cfg = resolveConfig(input).config;
@@ -130,7 +130,7 @@ function runOne(sc: Scen, spec: StrategySpec, ml: KnnLocatorModel | undefined): 
   const events: ScenarioEvent[] = [...sc.leaks.map((l) => ({ t: l.t, type: 'leak' as const, id: l.id, x: l.x, sizePct: l.size, rampSec: 0 })), ...sc.regimes];
   const src = new SimulatedSource(truth, { seed: sc.seed, events, durationSec: sc.duration });
   const twin = createTwin(cfg);
-  const det = createDetector({ ...spec, warmupSec: 60 }, ml ? { mlLocator: ml } : {});
+  const det = createDetector({ ...spec, warmupSec: 60 }, { ...(ml ? { mlLocator: ml } : {}), ...(ev ? { eventClassifier: ev } : {}) });
   det.reset({ config: cfg, sensors: cfg.sensors, sampleRateHz: cfg.sampling.rateHz, twin });
   const snaps: Snapshot[] = [];
   let next = 0;
@@ -154,10 +154,12 @@ function run(): void {
   const spec = JSON.parse(readFileSync(resolve(ROOT, 'configs/strategy.selected.json'), 'utf8')) as StrategySpec;
   const mlPath = resolve(ROOT, 'configs/models/locator.default.json');
   const ml = JSON.parse(readFileSync(mlPath, 'utf8')) as KnnLocatorModel;
+  const evPath = resolve(ROOT, 'configs/models/event-classifier.default.json');
+  const ev = existsSync(evPath) ? (JSON.parse(readFileSync(evPath, 'utf8')) as EventClassifierModel) : undefined;
   const lines: string[] = [];
   const kinds = opt('kind')?.split(',');
   for (const sc of scenarios().filter((s) => s.n % shards === shard && (!kinds || kinds.includes(s.kind)))) {
-    const snaps = runOne(sc, spec, ml);
+    const snaps = runOne(sc, spec, ml, ev);
     lines.push(JSON.stringify({ sc, snaps }));
     process.stderr.write(`${sc.n} ${sc.kind}\n`);
   }

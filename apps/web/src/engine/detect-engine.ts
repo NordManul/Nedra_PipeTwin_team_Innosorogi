@@ -5,11 +5,14 @@
  */
 import type { ActionRule, DetectorOutput, EventCard, PipelineConfig, RequirementCheck, SensorFrame, StrategySpec, TwinModel, TwinPrediction } from '@pipetwin/core/contracts';
 import { calibrate, createTwin, getParam } from '@pipetwin/core';
-import { buildEventCard, createDetector, defaultStrategy, REGISTRY, type DetectionPipeline, type KnnLocatorModel } from '@pipetwin/detect';
+import { buildEventCard, createDetector, defaultStrategy, REGISTRY, type DetectionPipeline, type EventClassifierModel, type KnnLocatorModel } from '@pipetwin/detect';
 import locatorModel from '../../../../configs/models/locator.default.json';
+import eventClassifierModel from '../../../../configs/models/event-classifier.default.json';
 
 /** ML-оценка места первых секунд тревоги (H-B12); детектор сам проверит, что модель к этой трубе. */
 const ML_LOCATOR = locatorModel as unknown as KnnLocatorModel;
+/** ML «утечка или отказ датчика» перед подтверждением утечки (H-B19). */
+const EVENT_CLASSIFIER = eventClassifierModel as unknown as EventClassifierModel;
 import type { DetectMessage } from './protocol';
 
 /** Сколько секунд кадров хранить для калибровки по запросу. */
@@ -46,12 +49,12 @@ export class DetectEngine {
   setStrategy(strategy: StrategySpec): void {
     this.strategy = strategy;
     this.twin = createTwin(this.config);
-    this.det = createDetector(strategy, { mlLocator: ML_LOCATOR });
+    this.det = createDetector(strategy, { mlLocator: ML_LOCATOR, eventClassifier: EVENT_CLASSIFIER });
     const c = this.det.check(this.ctx());
     if (!c.ok) {
       // стратегия не подходит к датчикам — откат на порог по невязке
       this.strategy = defaultStrategy('threshold');
-      this.det = createDetector(this.strategy, { mlLocator: ML_LOCATOR });
+      this.det = createDetector(this.strategy, { mlLocator: ML_LOCATOR, eventClassifier: EVENT_CLASSIFIER });
     }
     this.det.reset(this.ctx());
     this.cards.clear();
