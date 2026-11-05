@@ -31,6 +31,9 @@ import { AlarmLog } from './ui/alarms';
 import { CardPanel } from './ui/card';
 import { Charts } from './ui/charts';
 import { $, clear, download, h } from './ui/dom';
+
+/** Значок в шапке: труба с точкой утечки. */
+const LOGO = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M2 9h20M2 15h20" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/><circle cx="15" cy="12" r="3.2" fill="#ffd166"/></svg>';
 import { display, fmt, km, UNIT } from './ui/format';
 import { Importer } from './ui/importer';
 import { ParamsPanel } from './ui/params';
@@ -79,6 +82,10 @@ class App {
   private replayDuration = 0;
   private lastFrame: SensorFrame | null = null;
   private presenting = false;
+  /** Инженерный вид: статистика детектора, невязки, журнал, параметры трубы. */
+  private engineering = false;
+  /** Обычный дисбаланс вход − выход (м³/ч) вне тревог: разная температура на концах, погрешность расходомеров. */
+  private imbBase: number | undefined;
   /** Таблицы и журнал перестраиваются реже графиков (4 раза/с) — DOM дороже canvas. */
   private panelsAt = 0;
   /** История зоны поиска текущей (последней) тревоги — для воронки. */
@@ -147,6 +154,7 @@ class App {
     this.cards.reset();
     this.alarms.reset();
     this.resetZone();
+    this.imbBase = undefined;
     this.faultAlarms.clear();
     this.lastEventClass = undefined;
     this.lastRegimeT = -Infinity;
@@ -195,6 +203,50 @@ class App {
     this.charts.resize();
     this.schematic.draw();
     this.operator.draw();
+  }
+
+  private setEngineering(on: boolean): void {
+    this.engineering = on;
+    document.body.classList.toggle('eng', on);
+    this.charts.resize();
+    this.renderHeader();
+  }
+
+  /** Крупные показатели участка под шапкой: состояние, вход и выход, дисбаланс, утечки, зона поиска. */
+  private renderKpi(): void {
+    const el = document.getElementById('kpi');
+    const cfg = this.resolved?.config;
+    if (!el || !cfg) return;
+    const out = this.outs;
+    const f = this.lastFrame;
+    const L = cfg.geometry.length;
+    const at = (kind: 'p' | 'q', end: 0 | 1) => cfg.sensors.find((v) => v.kind === kind && (end === 0 ? v.x <= 1 : v.x >= L - 1));
+    const val = (s: ReturnType<typeof at>) => (s && f?.values[s.id] !== undefined && f.valid?.[s.id] !== false ? display(s.kind, f.values[s.id]!, cfg.ambientPressure) : undefined);
+    const qi = val(at('q', 0));
+    const qo = val(at('q', 1));
+    const pi = val(at('p', 0));
+    const po = val(at('p', 1));
+    const leaks = this.activeLeaks;
+    const sumRate = leaks.reduce((a, l) => a + (l.leakRate ?? 0) * 3600, 0);
+    const raw = qi !== undefined && qo !== undefined ? qi - qo : undefined;
+    // норма дисбаланса — медленное среднее вне тревог; на экране — отклонение от неё
+    if (raw !== undefined && out && out.phase === 'running' && !out.alarm && !this.activeLeaks.length) this.imbBase = this.imbBase === undefined ? raw : this.imbBase + 0.02 * (raw - this.imbBase);
+    const imb = raw !== undefined && this.imbBase !== undefined ? raw - this.imbBase : undefined;
+    const tile = (cls: string, label: string, value: string, unit: string, sub: string) =>
+      h('div', { class: `kpi ${cls}` }, h('div', { class: 'k-label' }, label), h('div', { class: 'k-value' }, value, unit ? h('small', {}, unit) : ''), h('div', { class: 'k-sub' }, sub));
+    const state = !out || out.phase === 'warmup' ? ['', 'ПРОГРЕВ', 'оценка нормы и шума датчиков'] : out.alarm ? ['alarm', leaks.length > 1 ? `АВАРИЯ ×${leaks.length}` : 'АВАРИЯ', 'признаки утечки'] : out.phase === 'suspect' ? ['warn', 'ПРОВЕРКА', 'отклонение от модели'] : ['ok', 'НОРМА', 'отклонений от модели нет'];
+    const last = leaks.at(-1);
+    const iv = last?.locationInterval;
+    const zone = iv && iv[1] - iv[0] < 0.9 * L ? `${fmt(km(iv[0]), 1)}–${fmt(km(iv[1]), 1)}` : last ? 'весь участок' : '—';
+    clear(el);
+    el.append(
+      tile(state[0]!, 'Состояние СОУ', state[1]!, '', `${state[2]} · детектор ${this.strategy.strategy.toUpperCase()}`),
+      tile('', 'Вход · НПС', fmt(qi, 0), 'м³/ч', `давление ${fmt(pi, 2)} МПа`),
+      tile('', 'Выход · КП', fmt(qo, 0), 'м³/ч', `давление ${fmt(po, 2)} МПа`),
+      tile(imb !== undefined && out?.alarm ? 'warn' : '', 'Дисбаланс к норме', imb === undefined ? '—' : `${imb >= 0 ? '+' : ''}${fmt(imb, 1)}`, 'м³/ч', qi && imb !== undefined ? `${fmt((imb / qi) * 100, 1)}% от расхода · вход − выход` : 'набирается норма'),
+      tile(leaks.length ? 'alarm' : '', 'Активные утечки', String(leaks.length), '', leaks.length ? `∑ ≈ ${fmt(sumRate, 1)} м³/ч` : 'утечек нет'),
+      tile(leaks.length ? 'alarm' : '', 'Зона поиска', zone, iv && zone !== 'весь участок' ? 'км' : '', last?.locationStage ? STAGE_NAMES[last.locationStage] : last ? 'место уточняется' : 'тревог нет'),
+    );
   }
 
   private toggleTrainer(): void {
@@ -461,6 +513,7 @@ class App {
     root.append(
       h('header', { id: 'header' }),
       h('div', { id: 'banner', class: 'banner none' }),
+      h('div', { id: 'kpi', class: 'kpis' }),
       h(
         'main',
         {},
@@ -468,7 +521,7 @@ class App {
         h(
           'section',
           { class: 'col-center' },
-          h('div', { class: 'panel' }, h('h3', {}, 'Мнемосхема участка — экран оператора СОУ'), h('div', { id: 'operator' })),
+          h('div', { class: 'panel' }, h('h3', {}, 'Мнемосхема участка'), h('div', { id: 'operator' })),
           h(
             'div',
             { class: 'panel trainer trainer-only' },
@@ -485,8 +538,8 @@ class App {
           h('div', { id: 'alarms', class: 'panel' }),
           h('div', { id: 'card', class: 'panel' }),
           h('div', { id: 'sensors', class: 'panel' }),
-          h('div', { id: 'journal', class: 'panel' }),
-          h('div', { id: 'params', class: 'panel' }),
+          h('div', { id: 'journal', class: 'panel eng-only' }),
+          h('div', { id: 'params', class: 'panel eng-only' }),
         ),
       ),
       h('div', { id: 'toasts' }),
@@ -542,7 +595,8 @@ class App {
       h(
         'div',
         { class: 'brand' },
-        h('strong', {}, 'PipeTwin · СОУ'),
+        h('span', { class: 'logo', html: LOGO }),
+        h('strong', {}, 'Pipe', h('em', {}, 'Twin')),
         h('span', { class: 'site' }, cfg ? `Участок 0–${fmt(km(cfg.geometry.length), 0)} км · Ø${fmt(cfg.geometry.diameter * 1000, 0)} мм · ${this.mode === 'sim' ? 'симулятор' : 'запись'}` : ''),
       ),
       h(
@@ -553,11 +607,16 @@ class App {
         chip(model[0]!, 'Модель', model[1]!),
         chip(regime[0]!, 'Режим', regime[1]!),
         chip(sens[0]!, 'Датчики', sens[1]!),
-        h('span', { class: 'chip idle' }, 'Детектор', h('b', {}, this.strategy.strategy.toUpperCase())),
       ),
       h(
         'div',
         { class: 'row' },
+        h(
+          'span',
+          { class: 'views' },
+          h('button', { class: this.engineering ? '' : 'on', onclick: () => this.setEngineering(false) }, 'Оператор'),
+          h('button', { class: this.engineering ? 'on' : '', onclick: () => this.setEngineering(true) }, 'Инженер'),
+        ),
         h('span', { class: 'clock', title: 'модельное время' }, clock),
         h('button', { class: `small${this.trainer ? ' primary' : ''}`, title: 'Показать/скрыть тренажёр (клавиша T)', onclick: () => this.toggleTrainer() }, this.trainer ? 'Тренажёр: вкл' : 'Тренажёр: выкл'),
         h('button', { class: 'small', title: 'Крупный экран для проектора (клавиша P)', onclick: () => this.togglePresentation() }, 'Презентация'),
@@ -706,8 +765,8 @@ class App {
     if (!cfg) return;
     const out = this.outs;
     const markers = [
-      ...this.leaks.filter((l) => !l.hidden || this.detectedAfter(l.tStart) !== null).map((l) => ({ t: l.tStart, color: '#dc2626', label: 'утечка' })),
-      ...this.alarmTimes.map((t) => ({ t, color: '#f59e0b', label: 'тревога' })),
+      ...this.leaks.filter((l) => !l.hidden || this.detectedAfter(l.tStart) !== null).map((l) => ({ t: l.tStart, color: '#f87171', label: 'утечка' })),
+      ...this.alarmTimes.map((t) => ({ t, color: '#fbbf24', label: 'тревога' })),
     ];
     this.charts.setMarkers(markers);
     this.charts.update(this.store);
@@ -731,6 +790,7 @@ class App {
     this.operator.update({ frame: this.lastFrame, out, inputs: this.inputs, zone: this.zone, leaks: this.activeLeaks, transient: this.simT - this.lastRegimeT < 60 });
     if (!panels) return;
     this.renderHeader();
+    this.renderKpi();
     const j = $('#journal');
     clear(j);
     j.append(

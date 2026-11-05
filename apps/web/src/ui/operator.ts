@@ -41,20 +41,25 @@ export interface OperatorState {
 }
 
 const C = {
-  bg: '#1b1f24',
-  pipe: '#7d8590',
-  pipeAlarm: '#c9d1d9',
-  ink: '#d0d7de',
-  muted: '#8b949e',
-  faint: '#30363d',
-  tagBg: '#22272e',
-  tagLine: '#444c56',
-  warn: '#d29922',
-  alarm: '#f85149',
-  zone: 'rgba(248, 81, 73, 0.22)',
-  zoneLine: 'rgba(248, 81, 73, 0.9)',
-  stage: { segment: 'rgba(210, 153, 34, 0.35)', wave: 'rgba(88, 166, 255, 0.45)', profile: 'rgba(248, 81, 73, 0.55)', ml: 'rgba(163, 113, 247, 0.5)' } as Record<LocationStage, string>,
+  bg: '#111a48',
+  pipe: '#5a74d6',
+  pipeAlarm: '#c7d2fe',
+  ink: '#e6ebff',
+  muted: '#8f9bd0',
+  faint: '#1f2b66',
+  tagBg: '#16205a',
+  tagLine: '#33448c',
+  accent: '#4f8ff7',
+  flow: '#7dd3fc',
+  ok: '#34d399',
+  warn: '#fbbf24',
+  alarm: '#f87171',
+  zone: 'rgba(248, 113, 113, 0.20)',
+  zoneLine: 'rgba(248, 113, 113, 0.95)',
+  stage: { segment: 'rgba(251, 191, 36, 0.40)', wave: 'rgba(79, 143, 247, 0.55)', profile: 'rgba(248, 113, 113, 0.6)', ml: 'rgba(192, 132, 252, 0.55)' } as Record<LocationStage, string>,
 };
+const FONT = '"Manrope", "IBM Plex Sans", "Segoe UI", system-ui, sans-serif';
+const MONO = '"JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace';
 
 const PAD_L = 130;
 const PAD_R = 130;
@@ -102,7 +107,7 @@ export class OperatorView {
     const g = cv.getContext('2d')!;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, W, H);
-    g.font = '11px "IBM Plex Sans", "Segoe UI", system-ui, sans-serif';
+    g.font = `11px ${FONT}`;
     return g;
   }
 
@@ -150,7 +155,11 @@ export class OperatorView {
       const whole = iv[1] - iv[0] >= 0.9 * L;
       const x0 = X(iv[0]);
       const x1 = Math.max(X(iv[1]), x0 + 2);
-      g.fillStyle = whole ? 'rgba(248, 81, 73, 0.08)' : C.zone;
+      const zg = g.createLinearGradient(0, 34, 0, H - 26);
+      zg.addColorStop(0, whole ? 'rgba(248,113,113,0.04)' : 'rgba(248,113,113,0.05)');
+      zg.addColorStop(0.5, whole ? 'rgba(248,113,113,0.10)' : 'rgba(248,113,113,0.32)');
+      zg.addColorStop(1, whole ? 'rgba(248,113,113,0.04)' : 'rgba(248,113,113,0.05)');
+      g.fillStyle = zg;
       g.fillRect(x0, 34, x1 - x0, H - 60);
       g.strokeStyle = C.zoneLine;
       g.setLineDash(l.state === 'confirmed' ? [] : [4, 3]);
@@ -161,7 +170,7 @@ export class OperatorView {
       const text = whole
         ? `№${n}: МЕСТО НЕ ОПРЕДЕЛЕНО — ВЕСЬ УЧАСТОК`
         : `№${n}${l.state === 'confirmed' ? ' ПОДТВ.' : ''} км ${fmt(km(iv[0]), 1)}–${fmt(km(iv[1]), 1)}${stage ? ` · ${stage}` : ''}`;
-      g.font = 'bold 11px "IBM Plex Sans", "Segoe UI", system-ui, sans-serif';
+      g.font = `bold 11px ${FONT}`;
       const tw = g.measureText(text).width;
       const tx = Math.min(Math.max((x0 + x1) / 2 - tw / 2, 4), W - tw - 4);
       let row = 0;
@@ -169,22 +178,26 @@ export class OperatorView {
       labelRows.push({ x0: tx, x1: tx + tw, row });
       g.fillStyle = C.alarm;
       g.fillText(text, tx, 48 + row * 14);
-      g.font = '11px "IBM Plex Sans", "Segoe UI", system-ui, sans-serif';
+      g.font = `11px ${FONT}`;
     }
 
-    // труба: две линии стенки, направление потока
-    g.strokeStyle = alarm ? C.pipeAlarm : C.pipe;
-    g.lineWidth = 2;
+    // труба: объёмная (градиент), поток — бегущие шевроны
+    const pg = g.createLinearGradient(0, pipeY - 8, 0, pipeY + 8);
+    pg.addColorStop(0, '#3a4fa8');
+    pg.addColorStop(0.45, '#22307a');
+    pg.addColorStop(1, '#141d52');
+    g.fillStyle = pg;
     g.beginPath();
-    g.moveTo(X(0), pipeY - 6);
-    g.lineTo(X(L), pipeY - 6);
-    g.moveTo(X(0), pipeY + 6);
-    g.lineTo(X(L), pipeY + 6);
+    g.roundRect(X(0) - 46, pipeY - 8, w + 92, 16, 8);
+    g.fill();
+    g.strokeStyle = alarm ? C.pipeAlarm : C.pipe;
+    g.lineWidth = 1;
     g.stroke();
-    g.fillStyle = alarm ? 'rgba(201,209,217,.08)' : 'rgba(125,133,144,.08)';
-    g.fillRect(X(0), pipeY - 5, w, 10);
-    g.fillStyle = C.muted;
-    for (let i = 1; i < 6; i++) arrow(g, PAD_L + (w * i) / 6, pipeY, 6);
+    g.fillStyle = 'rgba(255,255,255,0.10)';
+    g.fillRect(X(0) - 40, pipeY - 6, w + 80, 2);
+    g.fillStyle = alarm ? 'rgba(199,210,254,0.55)' : 'rgba(125,211,252,0.6)';
+    const phase = ((performance.now() / 40) % 48) / 48;
+    for (let px = X(0) + phase * 48; px < X(L); px += 48) arrow(g, px, pipeY + 1, 4);
     if (suspect && !alarm) {
       g.strokeStyle = C.warn;
       g.setLineDash([6, 4]);
@@ -192,15 +205,7 @@ export class OperatorView {
       g.setLineDash([]);
     }
 
-    // станции и патрубки к ним
-    g.strokeStyle = C.pipe;
-    g.lineWidth = 2;
-    g.beginPath();
-    g.moveTo(X(0) - 46, pipeY);
-    g.lineTo(X(0), pipeY);
-    g.moveTo(X(L), pipeY);
-    g.lineTo(X(L) + 46, pipeY);
-    g.stroke();
+    // станции на концах трубы
     station(g, X(0) - 72, pipeY, 'НПС (вход)', 'pump', C);
     station(g, X(L) + 72, pipeY, 'КП (выход)', 'valve', C);
 
@@ -209,6 +214,11 @@ export class OperatorView {
       const iv = l.locationInterval;
       if (l.location === undefined || (iv && iv[1] - iv[0] >= 0.9 * L)) continue;
       const px = X(l.location);
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 300);
+      g.fillStyle = `rgba(248,113,113,${0.15 + 0.2 * pulse})`;
+      g.beginPath();
+      g.arc(px, pipeY, 16 + 4 * pulse, 0, Math.PI * 2);
+      g.fill();
       g.fillStyle = C.alarm;
       g.beginPath();
       g.moveTo(px, pipeY - 13);
@@ -237,7 +247,7 @@ export class OperatorView {
       const unit = s.kind === 'p' ? 'МПа' : s.kind === 'q' ? 'м³/ч' : '°C';
       const value = valid ? `${fmt(display(s.kind, v!, cfg.ambientPressure), s.kind === 'p' ? 3 : s.kind === 'q' ? 0 : 1)} ${unit}` : 'нет данных';
       const tag = `${s.kind === 'p' ? 'PT' : s.kind === 'q' ? 'FT' : 'TT'} ${s.id}${inputs.includes(s.id) ? ' ▸М' : ''}`;
-      g.font = '10px "IBM Plex Mono", ui-monospace, monospace';
+      g.font = `10px ${MONO}`;
       const tw = Math.max(g.measureText(tag).width, g.measureText(value).width) + 10;
       const bx = Math.min(Math.max(px - tw / 2, 2), W - tw - 2);
       // ряд, в котором табличка не наезжает на соседние
@@ -260,15 +270,20 @@ export class OperatorView {
       g.fill();
       // табличка
       g.fillStyle = C.tagBg;
-      g.fillRect(bx, by, tw, bh);
+      g.beginPath();
+      g.roundRect(bx + 0.5, by + 0.5, tw - 1, bh - 1, 6);
+      g.fill();
       g.strokeStyle = state === 'bad' ? C.alarm : state === 'warn' ? C.warn : C.tagLine;
       g.lineWidth = state === 'ok' ? 1 : 2;
-      g.strokeRect(bx + 0.5, by + 0.5, tw - 1, bh - 1);
+      g.stroke();
+      g.fillStyle = state === 'bad' ? C.alarm : state === 'warn' ? C.warn : s.kind === 'p' ? C.accent : s.kind === 'q' ? C.ok : '#fb923c';
+      g.fillRect(bx + 1, by + 4, 2, bh - 8);
       g.fillStyle = C.muted;
-      g.fillText(tag, bx + 5, by + 11);
+      g.fillText(tag, bx + 7, by + 11);
       g.fillStyle = state === 'bad' ? C.alarm : C.ink;
-      g.fillText(value, bx + 5, by + 22);
-      g.font = '11px "IBM Plex Sans", "Segoe UI", system-ui, sans-serif';
+      g.font = `bold 10px ${MONO}`;
+      g.fillText(value, bx + 7, by + 22);
+      g.font = `11px ${FONT}`;
     }
 
     // состояние внизу
@@ -285,7 +300,7 @@ export class OperatorView {
           : this.state.transient
             ? 'ПЕРЕХОДНЫЙ РЕЖИМ: смена режима перекачки, порог временно повышен'
             : 'НОРМА';
-    g.font = 'bold 11px "IBM Plex Sans", "Segoe UI", system-ui, sans-serif';
+    g.font = `bold 11px ${FONT}`;
     g.fillText(status, PAD_L, H - 8);
   }
 
@@ -351,27 +366,52 @@ function arrow(g: CanvasRenderingContext2D, x: number, y: number, s: number): vo
 }
 
 function station(g: CanvasRenderingContext2D, cx: number, cy: number, label: string, kind: 'pump' | 'valve', c: typeof C): void {
-  g.strokeStyle = c.ink;
-  g.fillStyle = c.tagBg;
-  g.lineWidth = 1.5;
-  g.fillRect(cx - 26, cy - 20, 52, 36);
-  g.strokeRect(cx - 26, cy - 20, 52, 36);
+  // круглая «плашка» станции с ореолом
+  const glow = g.createRadialGradient(cx, cy, 8, cx, cy, 34);
+  glow.addColorStop(0, kind === 'pump' ? 'rgba(52,211,153,0.35)' : 'rgba(79,143,247,0.35)');
+  glow.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = glow;
+  g.beginPath();
+  g.arc(cx, cy, 34, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = '#16205a';
+  g.strokeStyle = kind === 'pump' ? c.ok : c.accent;
+  g.lineWidth = 2;
+  g.beginPath();
+  g.arc(cx, cy, 20, 0, Math.PI * 2);
+  g.fill();
+  g.stroke();
   g.beginPath();
   if (kind === 'pump') {
-    g.arc(cx, cy - 2, 11, 0, Math.PI * 2);
-    g.moveTo(cx - 6, cy - 9);
-    g.lineTo(cx + 9, cy - 2);
-    g.lineTo(cx - 6, cy + 5);
+    // ротор насоса: три лопасти
+    g.fillStyle = c.ok;
+    for (let i = 0; i < 3; i++) {
+      const a = (i * 2 * Math.PI) / 3 + performance.now() / 600;
+      g.moveTo(cx, cy);
+      g.arc(cx, cy, 13, a, a + 0.9);
+      g.closePath();
+    }
+    g.fill();
+    g.fillStyle = '#16205a';
+    g.beginPath();
+    g.arc(cx, cy, 3.5, 0, Math.PI * 2);
+    g.fill();
   } else {
-    g.moveTo(cx - 12, cy - 10);
-    g.lineTo(cx + 12, cy + 6);
-    g.lineTo(cx + 12, cy - 10);
-    g.lineTo(cx - 12, cy + 6);
+    g.fillStyle = c.accent;
+    g.moveTo(cx - 11, cy - 8);
+    g.lineTo(cx, cy);
+    g.lineTo(cx - 11, cy + 8);
     g.closePath();
+    g.moveTo(cx + 11, cy - 8);
+    g.lineTo(cx, cy);
+    g.lineTo(cx + 11, cy + 8);
+    g.closePath();
+    g.fill();
   }
-  g.stroke();
-  g.fillStyle = c.muted;
-  g.fillText(label, cx - g.measureText(label).width / 2, cy + 30);
+  g.fillStyle = c.ink;
+  g.font = `bold 11px ${FONT}`;
+  g.fillText(label, cx - g.measureText(label).width / 2, cy + 36);
+  g.font = `11px ${FONT}`;
 }
 
 function niceStep(span: number, maxTicks: number): number {

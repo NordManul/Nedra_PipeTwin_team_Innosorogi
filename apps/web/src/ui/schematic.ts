@@ -17,12 +17,24 @@ export interface SchematicState {
 }
 
 const PAD_X = 48;
-const KIND_COLOR = { p: '#2563eb', q: '#059669', T: '#d97706' } as const;
+const KIND_COLOR = { p: '#4f8ff7', q: '#34d399', T: '#fb923c' } as const;
 
+/** Шкала давления в тон интерфейсу: тёмно-синее (низкое) → голубое → янтарное (высокое). */
+const P_STOPS: Array<[number, number, number]> = [
+  [30, 58, 138],
+  [79, 143, 247],
+  [125, 211, 252],
+  [253, 230, 138],
+  [251, 146, 60],
+];
 function pressureColor(f: number): string {
-  // синий (низкое) → зелёный → красный (высокое)
-  const hue = 240 - 240 * Math.min(1, Math.max(0, f));
-  return `hsl(${hue}, 75%, 50%)`;
+  const t = Math.min(1, Math.max(0, f)) * (P_STOPS.length - 1);
+  const i = Math.min(P_STOPS.length - 2, Math.floor(t));
+  const u = t - i;
+  const a = P_STOPS[i]!;
+  const b = P_STOPS[i + 1]!;
+  const c = a.map((v, k) => Math.round(v + (b[k]! - v) * u));
+  return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
 }
 
 export class Schematic {
@@ -41,7 +53,7 @@ export class Schematic {
       Object.assign(document.createElement('div'), {
         className: 'legend small muted',
         innerHTML:
-          '<span class="grad"></span> давление: синий — ниже, красный — выше · ' +
+          '<span class="grad"></span> давление: тёмно-синий — ниже, янтарный — выше · ' +
           '<b style="color:#2563eb">●</b> давление <b style="color:#059669">●</b> расход <b style="color:#d97706">●</b> температура ' +
           '<b style="color:#dc2626">●</b> неисправен · <b style="color:#dc2626">▲</b> утечка (правда) · <b style="color:#f59e0b">▼</b> оценка места',
       }),

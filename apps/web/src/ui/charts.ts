@@ -9,10 +9,15 @@ import type { PipelineConfig } from '@pipetwin/core/contracts';
 import type { SeriesStore } from './store';
 import { h } from './dom';
 
-const PALETTE = ['#2563eb', '#dc2626', '#059669', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#65a30d', '#ea580c', '#4f46e5'];
+/** Ряды на тёмно-синем фоне: яркие, различимые, без красного (он — только для аварии). */
+const PALETTE = ['#4f8ff7', '#34d399', '#fbbf24', '#c084fc', '#22d3ee', '#fb923c', '#a3e635', '#f472b6', '#93c5fd', '#fde68a'];
+const AXIS = '#8f9bd0';
+const GRID = 'rgba(143, 155, 208, 0.12)';
 
 interface ChartDef {
   title: string;
+  /** Только в инженерном виде. */
+  eng?: boolean;
   unit: string;
   keys: string[];
   series: uPlot.Series[];
@@ -91,16 +96,18 @@ export class Charts {
       { title: 'Расход: замер и прогноз twin', unit: 'м³/ч', ...pair(qs) },
       {
         title: 'Статистика детектора и порог',
+        eng: true,
         unit: '',
         keys: ['score', 'thr', 'alarmBand'],
         series: [
-          { label: 'статистика', stroke: '#2563eb', width: 1.6 },
-          { label: 'порог', stroke: '#dc2626', width: 1.5, dash: [8, 5] },
-          { label: 'тревога', stroke: 'rgba(220,38,38,0)', fill: 'rgba(220,38,38,0.12)', width: 0 },
+          { label: 'статистика', stroke: '#4f8ff7', width: 1.8, fill: 'rgba(79,143,247,0.10)' },
+          { label: 'порог', stroke: '#f87171', width: 1.5, dash: [8, 5] },
+          { label: 'тревога', stroke: 'rgba(248,113,113,0)', fill: 'rgba(248,113,113,0.14)', width: 0 },
         ],
       },
       {
         title: 'Нормированная невязка z = (замер − прогноз − μ)/σ',
+        eng: true,
         unit: 'σ',
         keys: resid.map((s) => `z:${s.id}`),
         series: resid.map((s, i) => ({ label: s.id, stroke: color(i), width: 1.2 })),
@@ -108,7 +115,7 @@ export class Charts {
     ];
     for (const def of defs) {
       if (!def.keys.length) continue;
-      const box = h('div', { class: 'chart' }, h('div', { class: 'chart-title' }, def.title, def.unit ? h('span', { class: 'muted' }, ` · ${def.unit}`) : ''));
+      const box = h('div', { class: def.eng ? 'chart eng-only' : 'chart' }, h('div', { class: 'chart-title' }, def.title, def.unit ? h('span', { class: 'muted' }, ` · ${def.unit}`) : ''));
       const holder = h('div');
       box.append(holder);
       this.host.append(box);
@@ -119,8 +126,8 @@ export class Charts {
         cursor: { drag: { x: false, y: false } },
         scales: { x: { time: false } },
         axes: [
-          { label: 'модельное время, с', size: 34, labelSize: 14, stroke: 'currentColor', grid: { stroke: 'rgba(128,128,128,.15)' } },
-          { size: 56, stroke: 'currentColor', grid: { stroke: 'rgba(128,128,128,.15)' } },
+          { label: 'модельное время, с', size: 34, labelSize: 14, stroke: AXIS, grid: { stroke: GRID }, ticks: { stroke: GRID } },
+          { size: 56, stroke: AXIS, grid: { stroke: GRID }, ticks: { stroke: GRID } },
         ],
         series: [{ label: 't' }, ...def.series],
         plugins: [markersPlugin(() => this.markers)],
@@ -152,7 +159,7 @@ export class Charts {
     out.width = w;
     out.height = hh;
     const g = out.getContext('2d')!;
-    g.fillStyle = '#fff';
+    g.fillStyle = '#0a1030';
     g.fillRect(0, 0, w, hh);
     let y = 0;
     for (const c of cvs) {

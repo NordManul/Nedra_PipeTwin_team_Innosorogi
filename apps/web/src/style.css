@@ -776,3 +776,318 @@ body.present .col-right {
 body.present .stopwatch .big {
   font-size: 34px;
 }
+
+/* ================================================================ тема «ночной диспетчерский»
+ * Тёмно-синяя палитра в духе цифровых двойников добычи: глубокий фон, карточки с мягкой тенью,
+ * акцентный синий для информации. Красный и жёлтый — только для аварий и отклонений (ISA-101). */
+:root {
+  --bg: #0a1030;
+  --bg-2: #0d1540;
+  --panel: #111a48;
+  --panel-2: #172257;
+  --ink: #e6ebff;
+  --muted: #8f9bd0;
+  --line: #22306e;
+  --line-2: #33448c;
+  --accent: #4f8ff7;
+  --accent-2: #2b1fb0;
+  --ok: #34d399;
+  --warn: #fbbf24;
+  --bad: #f87171;
+  --ok-bg: rgba(52, 211, 153, 0.12);
+  --warn-bg: rgba(251, 191, 36, 0.12);
+  --bad-bg: rgba(248, 113, 113, 0.14);
+  --radius: 14px;
+  --shadow: 0 8px 24px rgba(3, 6, 25, 0.45);
+  --font: 'Manrope', 'IBM Plex Sans', 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+  --mono: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+body {
+  background: radial-gradient(1200px 600px at 70% -10%, rgba(79, 143, 247, 0.12), transparent 60%), var(--bg);
+  background-attachment: fixed;
+  font-size: 13px;
+}
+
+header {
+  background: linear-gradient(90deg, #0b1238, #121c55);
+  border-bottom: 1px solid var(--line);
+  padding: 10px 18px;
+  box-shadow: 0 2px 12px rgba(3, 6, 25, 0.5);
+}
+
+.brand {
+  align-items: center;
+}
+
+.brand .logo {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset, 0 4px 14px rgba(79, 143, 247, 0.35);
+}
+
+.brand strong {
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.brand strong em {
+  font-style: normal;
+  color: var(--accent);
+}
+
+.chip {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 10px;
+  color: var(--muted);
+}
+
+.chip b {
+  color: var(--ink);
+}
+
+.clock {
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 15px;
+  padding: 3px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.views {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line);
+}
+
+.views button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 8px;
+  padding: 4px 12px;
+}
+
+.views button.on {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(79, 143, 247, 0.4);
+}
+
+main {
+  gap: 16px;
+  padding: 16px;
+}
+
+.panel {
+  background: linear-gradient(180deg, var(--panel), var(--bg-2));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px 16px;
+}
+
+.panel h3,
+.chart-title {
+  color: var(--muted);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.panel h3::before {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 12px;
+  border-radius: 2px;
+  margin-right: 8px;
+  vertical-align: -1px;
+  background: var(--accent);
+}
+
+.chart {
+  background: linear-gradient(180deg, var(--panel), var(--bg-2));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+button {
+  background: var(--panel-2);
+  border: 1px solid var(--line-2);
+  color: var(--ink);
+  border-radius: 8px;
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+select,
+input[type='number'],
+input[type='text'] {
+  background: var(--bg-2);
+  color: var(--ink);
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+}
+
+.banner {
+  margin: 12px 16px 0;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+}
+
+.banner.pr-alarm {
+  background: linear-gradient(90deg, rgba(248, 113, 113, 0.28), rgba(248, 113, 113, 0.08));
+  border-color: rgba(248, 113, 113, 0.6);
+}
+
+.banner.pr-ok {
+  background: linear-gradient(90deg, rgba(52, 211, 153, 0.22), rgba(52, 211, 153, 0.05));
+  border-color: rgba(52, 211, 153, 0.5);
+}
+
+/* ---------------------------------------------------------------- KPI */
+
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+  padding: 14px 16px 0;
+}
+
+@media (max-width: 1100px) {
+  .kpis {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.kpi {
+  position: relative;
+  padding: 12px 14px 10px;
+  border-radius: var(--radius);
+  background: linear-gradient(160deg, #1a2768, #111a48 70%);
+  border: 1px solid var(--line-2);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.kpi::after {
+  content: '';
+  position: absolute;
+  right: -30px;
+  top: -30px;
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(79, 143, 247, 0.22), transparent 70%);
+}
+
+.kpi .k-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+}
+
+.kpi .k-value {
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.2;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.kpi .k-value small {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-left: 4px;
+}
+
+.kpi .k-sub {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.kpi.alarm {
+  background: linear-gradient(160deg, rgba(248, 113, 113, 0.35), #2a1238 75%);
+  border-color: rgba(248, 113, 113, 0.7);
+}
+
+.kpi.alarm .k-value {
+  color: #ffd1d1;
+}
+
+.kpi.ok .k-value {
+  color: var(--ok);
+}
+
+.kpi.warn {
+  border-color: rgba(251, 191, 36, 0.6);
+}
+
+/* ---------------------------------------------------------------- режимы экрана */
+
+body:not(.eng) .eng-only {
+  display: none !important;
+}
+
+table.alarms th,
+table.kv td:first-child {
+  color: var(--muted);
+}
+
+table.alarms td,
+table.alarms th {
+  border-color: var(--line);
+}
+
+.u-legend {
+  color: var(--muted);
+}
+
+pre.log {
+  background: var(--bg);
+  border-radius: 8px;
+}
+
+.panel.trainer {
+  border: 1px dashed rgba(251, 191, 36, 0.55);
+  background: repeating-linear-gradient(135deg, rgba(251, 191, 36, 0.035) 0 10px, transparent 10px 20px), linear-gradient(180deg, var(--panel), var(--bg-2));
+}
+
+.legend .grad {
+  background: linear-gradient(90deg, #1e3a8a, #4f8ff7, #7dd3fc, #fde68a, #fb923c) !important;
+}
+
+header .chips {
+  flex: 1;
+  justify-content: center;
+}
